@@ -57,34 +57,114 @@
 
       <!-- TAB: STATIONS -->
       <section v-if="activeTab === 'stations'" class="tab-pane">
-        <div class="stations-grid">
-          <div 
-            v-for="(info, name) in stationsInfo" 
-            :key="name" 
-            class="station-card"
-            :style="{ '--card-accent': info.color }"
-          >
-            <div class="station-header">
-              <div class="station-icon">{{ info.emoji }}</div>
-              <div class="station-frequency">{{ info.freq }}</div>
+        <div class="split-pane">
+          <!-- Left side: Stations Grid -->
+          <div class="left-list card-container">
+            <div class="section-title-row">
+              <h3>Estaciones Disponibles</h3>
+              <span class="badge">{{ Object.keys(stationsInfo).length }} emisoras</span>
             </div>
-            <div class="station-body">
-              <h3>{{ name }}</h3>
-              <p class="description">{{ info.desc }}</p>
-              <div class="station-meta">
-                <span class="meta-item">🗣️ <strong>Locutor:</strong> {{ info.host }}</span>
-                <span class="meta-item">🎭 <strong>Estilo:</strong> {{ info.style }}</span>
+            
+            <div class="stations-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+              <div 
+                v-for="(info, name) in stationsInfo" 
+                :key="name" 
+                class="station-card"
+                :style="{ '--card-accent': info.color }"
+              >
+                <div class="station-header">
+                  <div class="station-icon">{{ info.emoji }}</div>
+                  <div class="station-frequency">{{ info.freq }}</div>
+                </div>
+                <div class="station-body">
+                  <h3>{{ name }}</h3>
+                  <p class="description">{{ info.desc }}</p>
+                  <div class="station-meta">
+                    <span class="meta-item">🗣️ <strong>Locutor:</strong> {{ info.host }}</span>
+                    <span class="meta-item">🎭 <strong>Personalidad:</strong> {{ info.style }}</span>
+                  </div>
+                </div>
+                <div class="station-footer">
+                  <button 
+                    class="btn btn-primary btn-block btn-generate" 
+                    @click="triggerGeneration(name)"
+                    :disabled="generating"
+                  >
+                    ⚡ Generar Episodio
+                  </button>
+                </div>
               </div>
             </div>
-            <div class="station-footer">
+          </div>
+
+          <!-- Right side: Station Form -->
+          <div class="right-form card-container">
+            <h3>📻 Registrar Nueva Emisora</h3>
+            <p class="form-desc">Crea una nueva frecuencia radial en la comunidad. Define su locutor y personaliza las frases con las que abre y cierra cada programa.</p>
+            
+            <form @submit.prevent="createStation" class="app-form">
               <button 
-                class="btn btn-primary btn-block btn-generate" 
-                @click="triggerGeneration(name)"
-                :disabled="generating"
+                type="button" 
+                @click="suggestStationWithAI" 
+                class="btn btn-secondary btn-block" 
+                :disabled="suggestingStation"
+                style="margin-bottom: 20px; border: 1px dashed var(--primary); color: var(--primary); background: rgba(245, 158, 11, 0.05);"
               >
-                ⚡ Generar Episodio
+                <span v-if="suggestingStation">✨ Generando sugerencia...</span>
+                <span v-else>✨ Sugerir Emisora con IA (Autocompletar)</span>
               </button>
-            </div>
+              
+              <div class="form-group">
+                <label>Nombre de la Emisora</label>
+                <input v-model="newStation.name" placeholder="Ej. Radio Cumbia 98" required>
+              </div>
+              <div class="form-group">
+                <label>Locutor Principal</label>
+                <input v-model="newStation.host_name" placeholder="Ej. El Primo Paco" required>
+              </div>
+              <div class="form-group-row" style="display: grid; grid-template-columns: 1fr 1fr 80px; gap: 10px;">
+                <div class="form-group">
+                  <label>Frecuencia</label>
+                  <input v-model="newStation.frequency" placeholder="Ej. 98.5 FM">
+                </div>
+                <div class="form-group">
+                  <label>Color</label>
+                  <input type="color" v-model="newStation.color" style="height: 42px; padding: 2px; cursor: pointer; width: 100%;">
+                </div>
+                <div class="form-group">
+                  <label>Emoji</label>
+                  <input v-model="newStation.emoji" placeholder="📻" style="text-align: center;">
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Personalidad del Locutor</label>
+                <input v-model="newStation.personality" placeholder="Ej. Entusiasta, habla de bailes de pueblo" required>
+              </div>
+              <div class="form-group">
+                <label>Descripción / Estilo</label>
+                <textarea v-model="newStation.description" rows="2" placeholder="Describe el estilo musical o de contenido..." required></textarea>
+              </div>
+              <div class="form-group">
+                <label>Plantillas de Apertura (Una por línea)</label>
+                <textarea 
+                  v-model="newStation.intro_templates_raw" 
+                  rows="3" 
+                  placeholder="Ej. ¡Buenos días a todos en Radio Cumbia!&#10;Aquí Paco subiendo el volumen..."
+                ></textarea>
+              </div>
+              <div class="form-group">
+                <label>Plantillas de Cierre (Una por línea)</label>
+                <textarea 
+                  v-model="newStation.outro_templates_raw" 
+                  rows="3" 
+                  placeholder="Ej. Eso es todo de mi parte, ¡adiós!&#10;Paco se despide, ¡sigan bailando!"
+                ></textarea>
+              </div>
+              
+              <button type="submit" class="btn btn-primary btn-block">
+                💾 Guardar Emisora
+              </button>
+            </form>
           </div>
         </div>
 
@@ -289,6 +369,16 @@
             <p class="form-desc">Inserta una nueva noticia en el universo compartido. Los agentes de radio la comentarán en los próximos episodios de acuerdo a su personalidad.</p>
             
             <form @submit.prevent="createNews" class="app-form">
+              <button 
+                type="button" 
+                @click="suggestNewsWithAI" 
+                class="btn btn-secondary btn-block" 
+                :disabled="suggesting"
+                style="margin-bottom: 20px; border: 1px dashed var(--primary); color: var(--primary); background: rgba(245, 158, 11, 0.05);"
+              >
+                <span v-if="suggesting">✨ Generando sugerencia...</span>
+                <span v-else>✨ Sugerir Noticia con IA (Autocompletar)</span>
+              </button>
               <div class="form-group">
                 <label>Titular Impactante</label>
                 <input v-model="newNews.headline" placeholder="Ej. Plaga de termitas devora tractor en segundos" required>
@@ -373,6 +463,16 @@
             <div class="right-form card-container">
               <h3>🏭 Registrar Marca Ficticia</h3>
               <form @submit.prevent="createBrand" class="app-form">
+                <button 
+                  type="button" 
+                  @click="suggestBrandWithAI" 
+                  class="btn btn-secondary btn-block" 
+                  :disabled="suggestingBrand"
+                  style="margin-bottom: 20px; border: 1px dashed var(--primary); color: var(--primary); background: rgba(245, 158, 11, 0.05);"
+                >
+                  <span v-if="suggestingBrand">✨ Generando sugerencia...</span>
+                  <span v-else>✨ Sugerir Marca con IA (Autocompletar)</span>
+                </button>
                 <div class="form-group">
                   <label>Nombre de la Empresa</label>
                   <input v-model="newBrand.name" placeholder="Ej. MegaTruck Parts" required>
@@ -399,6 +499,16 @@
             <div class="right-form card-container">
               <h3>📢 Crear Guión de Anuncio</h3>
               <form @submit.prevent="createCommercial" class="app-form">
+                <button 
+                  type="button" 
+                  @click="suggestCommercialWithAI" 
+                  class="btn btn-secondary btn-block" 
+                  :disabled="suggestingCommercial || !newCommercial.brand_id"
+                  style="margin-bottom: 20px; border: 1px dashed var(--primary); color: var(--primary); background: rgba(245, 158, 11, 0.05);"
+                >
+                  <span v-if="suggestingCommercial">✨ Generando sugerencia...</span>
+                  <span v-else>✨ Sugerir Comercial con IA (Autocompletar)</span>
+                </button>
                 <div class="form-group">
                   <label>Seleccionar Marca</label>
                   <select v-model="newCommercial.brand_id" required>
@@ -430,47 +540,105 @@
 
       <!-- TAB: CHARACTERS & MEMORY -->
       <section v-if="activeTab === 'characters'" class="tab-pane">
-        <div class="characters-grid">
-          <div 
-            v-for="char in characters" 
-            :key="char.id" 
-            class="character-detail-card"
-            @click="fetchMemories(char)"
-          >
-            <div class="char-header">
-              <div class="char-avatar">{{ getAvatarEmoji(char.name) }}</div>
-              <div class="char-title-meta">
-                <h3>{{ char.name }}</h3>
-                <span class="role-badge">{{ char.role }}</span>
-              </div>
-            </div>
-            <div class="char-body">
-              <p><strong>Personalidad:</strong> {{ char.personality }}</p>
-              <p><strong>Afinidad Radial:</strong> {{ char.station_affinity }}</p>
-              <p class="description">{{ char.description }}</p>
+        <div class="split-pane">
+          <!-- Characters List (Left side) -->
+          <div class="left-list card-container">
+            <div class="section-title-row">
+              <h3>Personajes del Universo</h3>
+              <span class="badge">{{ characters.length }} personajes</span>
             </div>
             
-            <!-- Narrative Memory segment inside character card -->
-            <div class="char-memory-container">
-              <h4>🧠 Memoria Narrativa Reciente</h4>
-              <div v-if="characterMemories[char.id] === undefined" class="memory-loading">
-                Haga clic para cargar recuerdos...
-              </div>
-              <div v-else-if="characterMemories[char.id].length === 0" class="memory-empty">
-                No tiene recuerdos en la base de datos todavía.
-              </div>
-              <div v-else class="memory-list">
-                <div 
-                  v-for="mem in characterMemories[char.id]" 
-                  :key="mem.id" 
-                  class="memory-item"
-                >
-                  <span class="memory-date">🗓️ {{ formatDate(mem.created_at) }}</span>
-                  <p class="memory-text">"{{ mem.memory }}"</p>
-                  <span class="memory-ep" v-if="mem.episode_title">En: {{ mem.episode_title }}</span>
+            <div class="characters-grid">
+              <div 
+                v-for="char in characters" 
+                :key="char.id" 
+                class="character-detail-card"
+                @click="fetchMemories(char)"
+              >
+                <div class="char-header">
+                  <div class="char-avatar">{{ getAvatarEmoji(char.name) }}</div>
+                  <div class="char-title-meta">
+                    <h3>{{ char.name }}</h3>
+                    <span class="role-badge">{{ char.role }}</span>
+                  </div>
+                </div>
+                <div class="char-body">
+                  <p><strong>Personalidad:</strong> {{ char.personality }}</p>
+                  <p><strong>Afinidad Radial:</strong> {{ char.station_affinity }}</p>
+                  <p class="description">{{ char.description }}</p>
+                </div>
+                
+                <!-- Narrative Memory segment inside character card -->
+                <div class="char-memory-container">
+                  <h4>🧠 Memoria Narrativa Reciente</h4>
+                  <div v-if="characterMemories[char.id] === undefined" class="memory-loading">
+                    Haga clic para cargar recuerdos...
+                  </div>
+                  <div v-else-if="characterMemories[char.id].length === 0" class="memory-empty">
+                    No tiene recuerdos en la base de datos todavía.
+                  </div>
+                  <div v-else class="memory-list">
+                    <div 
+                      v-for="mem in characterMemories[char.id]" 
+                      :key="mem.id" 
+                      class="memory-item"
+                    >
+                      <span class="memory-date">🗓️ {{ formatDate(mem.created_at) }}</span>
+                      <p class="memory-text">"{{ mem.memory }}"</p>
+                      <span class="memory-ep" v-if="mem.episode_title">En: {{ mem.episode_title }}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
+          </div>
+
+          <!-- Add Character Form (Right side) -->
+          <div class="right-form card-container">
+            <h3>👥 Registrar Personaje de la Vecindad</h3>
+            <p class="form-desc">Define un nuevo habitante de la comunidad. Los locutores podrán llamarlo por teléfono o comentarlo en sus historias.</p>
+            
+            <form @submit.prevent="createCharacter" class="app-form">
+              <button 
+                type="button" 
+                @click="suggestCharacterWithAI" 
+                class="btn btn-secondary btn-block" 
+                :disabled="suggestingCharacter"
+                style="margin-bottom: 20px; border: 1px dashed var(--primary); color: var(--primary); background: rgba(245, 158, 11, 0.05);"
+              >
+                <span v-if="suggestingCharacter">✨ Generando sugerencia...</span>
+                <span v-else>✨ Sugerir Personaje con IA (Autocompletar)</span>
+              </button>
+              
+              <div class="form-group">
+                <label>Nombre del Personaje</label>
+                <input v-model="newCharacter.name" placeholder="Ej. Pedro 'El Mecánico'" required>
+              </div>
+              <div class="form-group">
+                <label>Rol / Ocupación</label>
+                <input v-model="newCharacter.role" placeholder="Ej. Mecánico local de tractores" required>
+              </div>
+              <div class="form-group">
+                <label>Afinidad Radial (Emisoras, separadas por coma)</label>
+                <input v-model="newCharacter.station_affinity" placeholder="Ej. AgroTalk FM, WCTR Sim Edition">
+              </div>
+              <div class="form-group">
+                <label>Personalidad / Rasgos de Habla</label>
+                <input v-model="newCharacter.personality" placeholder="Ej. Gruñón, habla lento, obsesionado con bujías" required>
+              </div>
+              <div class="form-group">
+                <label>Descripción / Trasfondo</label>
+                <textarea 
+                  v-model="newCharacter.description" 
+                  rows="3" 
+                  placeholder="Describe brevemente su historia personal o relación con otros..."
+                  required
+                ></textarea>
+              </div>
+              <button type="submit" class="btn btn-primary btn-block">
+                💾 Guardar Personaje
+              </button>
+            </form>
           </div>
         </div>
       </section>
@@ -644,15 +812,22 @@ const currentTabSubtitle = computed(() => {
   return tabs.find(t => t.id === activeTab.value)?.subtitle || ''
 })
 
-// Station UI details
-const stationsInfo = {
+const DEFAULT_STATIONS_INFO = {
   "AgroTalk FM": {
     freq: "95.2 FM",
     emoji: "🌾",
     host: "Clem",
     style: "Informativa Agrícola",
     desc: "Radio de debate centrada en la cosecha, precios de fertilizantes y chismes de tractor.",
-    color: "#10b981" // Emerald
+    color: "#10b981",
+    intro_templates: [
+      "¡Buenos días, agricultores! Aquí Clem en AgroTalk FM. Sacudan el barro de sus botas porque hoy tenemos un programa cargado de nitrógeno y verdades como puños.",
+      "Bienvenidos de nuevo a AgroTalk FM, la única emisora que huele a estiércol fresco y trabajo duro. Soy Clem, y hoy hablaremos del precio de las cosechadoras."
+    ],
+    outro_templates: [
+      "Eso es todo por hoy en AgroTalk FM. Recuerden: si el tractor hace un ruido raro, pisen el acelerador más fuerte. Habló Clem, nos vemos en el campo.",
+      "Clem se despide de AgroTalk FM. Vuelvan a sus tractores, rieguen sus plantas y vigilen a sus vecinos. ¡Hasta la próxima, labradores!"
+    ]
   },
   "Trucker News Radio": {
     freq: "104.8 FM",
@@ -660,7 +835,15 @@ const stationsInfo = {
     host: "Diesel Dan",
     style: "Talk Radio Camionera",
     desc: "Noticias de autopistas, reportes de tráfico de larga distancia e historias del asfalto.",
-    color: "#6b7280" // Gray/Steel
+    color: "#6b7280",
+    intro_templates: [
+      "Aquí Diesel Dan en la frecuencia de Trucker News Radio. Para todos los que devoran asfalto a esta hora, mantengan los ojos abiertos y la cafetera encendida.",
+      "Saludos, nómadas de la carretera. Les habla Diesel Dan. Ajusten sus espejos, pongan quinta marcha y acompáñenme en este viaje de noticias y diésel."
+    ],
+    outro_templates: [
+      "Diesel Dan fuera. Mantengan las ruedas girando y los radares vigilados. Nos leemos en la próxima parada de camiones. 10-4.",
+      "Eso es todo desde la cabina de Trucker News Radio. Conduzcan con cuidado y no coman los burritos de la estación de servicio de la salida 4. Corto y cierro."
+    ]
   },
   "SimNation News": {
     freq: "88.0 FM",
@@ -668,17 +851,35 @@ const stationsInfo = {
     host: "Audrey Vance",
     style: "Noticiero Formal",
     desc: "Boletines de simulación serios y objetivos sobre la economía regional e infraestructura.",
-    color: "#3b82f6" // Blue
+    color: "#3b82f6",
+    intro_templates: [
+      "Muy buenas tardes. Les saluda Audrey Vance para SimNation News, transmitiendo las noticias más relevantes de la comunidad de simulación global.",
+      "Bienvenidos a la emisión de SimNation News. Les acompaña Audrey Vance. Analizaremos en detalle el impacto del último parche de rendimiento y el estado de la economía local."
+    ],
+    outro_templates: [
+      "Gracias por su sintonía. Les ha informado Audrey Vance para SimNation News. Manténganse informados y sigan simulando con responsabilidad.",
+      "Esto concluye nuestro boletín. Soy Audrey Vance. Recuerden que la realidad es solo otra simulación que no podemos reiniciar. Buenas noches."
+    ]
   },
   "WCTR Sim Edition": {
     freq: "99.1 FM",
     emoji: "👽",
-    host: "Dick Brainwave",
+    host: "Richard 'Dick' Brainwave",
     style: "Satírica / Conspiranoica",
     desc: "Teorías locas, llamadas telefónicas extravagantes y secretos alienígenas de los cultivos.",
-    color: "#ec4899" // Hot Pink
+    color: "#ec4899",
+    intro_templates: [
+      "¡DESPIERTEN, OVEJAS! Soy Dick Brainwave en WCTR Sim Edition. Hoy les revelaré cómo las corporaciones de tractores están insertando microchips en las semillas de trigo.",
+      "¡Están escuchando la verdad cruda en WCTR Sim Edition con Dick Brainwave! ¿Es el GPS de su camión una sonda alienígena? Spoiler: ¡SÍ LO ES!"
+    ],
+    outro_templates: [
+      "La verdad está ahí fuera, pero probablemente esté censurada por el lobby del compost. Dick Brainwave se despide. ¡No miren directamente a los espantapájaros!",
+      "¡Apaguen sus teléfonos! ¡Quemen sus manuales de conductor! Dick Brainwave les dice adiós desde el búnker de WCTR. ¡Ellos nos están escuchando!"
+    ]
   }
 }
+
+const stationsInfo = ref(DEFAULT_STATIONS_INFO)
 
 // Data Lists
 const tracks = ref([])
@@ -718,12 +919,37 @@ const newCommercial = ref({
   duration: 30
 })
 
+const newCharacter = ref({
+  name: '',
+  role: '',
+  description: '',
+  personality: '',
+  station_affinity: 'WCTR Sim Edition'
+})
+
+const newStation = ref({
+  name: '',
+  host_name: '',
+  description: '',
+  personality: '',
+  frequency: '',
+  emoji: '📻',
+  color: '#d97706',
+  intro_templates_raw: '',
+  outro_templates_raw: ''
+})
+
 // Async Generation State
 const generating = ref(false)
 const generationJob = ref(null)
 let jobPollingInterval = null
 const scanningMusic = ref(false)
 const uploadingMusic = ref(false)
+const suggesting = ref(false)
+const suggestingCommercial = ref(false)
+const suggestingBrand = ref(false)
+const suggestingCharacter = ref(false)
+const suggestingStation = ref(false)
 
 const pipelineProgressPercentage = computed(() => {
   if (!generationJob.value) return 0
@@ -768,13 +994,14 @@ const parsedScript = computed(() => {
 // API Operations
 const fetchInitialData = async () => {
   try {
-    const [tracksRes, charsRes, newsRes, commsRes, brandsRes, epsRes] = await Promise.all([
+    const [tracksRes, charsRes, newsRes, commsRes, brandsRes, epsRes, stationsRes] = await Promise.all([
       fetch(`${API_BASE}/music`),
       fetch(`${API_BASE}/characters`),
       fetch(`${API_BASE}/news`),
       fetch(`${API_BASE}/commercials`),
       fetch(`${API_BASE}/commercials/brands`),
-      fetch(`${API_BASE}/episodes`)
+      fetch(`${API_BASE}/episodes`),
+      fetch(`${API_BASE}/stations`)
     ])
 
     tracks.value = await tracksRes.json()
@@ -783,6 +1010,12 @@ const fetchInitialData = async () => {
     commercials.value = await commsRes.json()
     brands.value = await brandsRes.json()
     episodes.value = await epsRes.json()
+    try {
+      stationsInfo.value = await stationsRes.json()
+    } catch (e) {
+      console.warn("Could not load dynamic stations, falling back to default.", e)
+      stationsInfo.value = DEFAULT_STATIONS_INFO
+    }
     
     // Auto-select first brand for form
     if (brands.value.length > 0) {
@@ -879,6 +1112,95 @@ const createNews = async () => {
   }
 }
 
+const suggestNewsWithAI = async () => {
+  suggesting.value = true
+  try {
+    const res = await fetch(`${API_BASE}/news/suggest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        category: newNews.value.category,
+        tone: newNews.value.tone
+      })
+    })
+    if (res.ok) {
+      const data = await res.json()
+      newNews.value.headline = data.headline || ''
+      newNews.value.summary = data.summary || ''
+      newNews.value.category = data.category || newNews.value.category
+      newNews.value.tone = data.tone || newNews.value.tone
+      newNews.value.full_script = data.full_script || ''
+    } else {
+      const data = await res.json()
+      alert("Error al sugerir noticia: " + (data.error || "Error desconocido"))
+    }
+  } catch (e) {
+    console.error("Error al sugerir noticia con IA", e)
+    alert("Error de conexión al sugerir noticia.")
+  } finally {
+    suggesting.value = false
+  }
+}
+
+const suggestCommercialWithAI = async () => {
+  if (!newCommercial.value.brand_id) {
+    alert("Por favor, selecciona una marca primero.")
+    return
+  }
+  suggestingCommercial.value = true
+  try {
+    const res = await fetch(`${API_BASE}/commercials/suggest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        brand_id: newCommercial.value.brand_id
+      })
+    })
+    if (res.ok) {
+      const data = await res.json()
+      newCommercial.value.title = data.title || ''
+      newCommercial.value.campaign = data.campaign || 'General'
+      newCommercial.value.script = data.script || ''
+    } else {
+      const data = await res.json()
+      alert("Error al sugerir comercial: " + (data.error || "Error desconocido"))
+    }
+  } catch (e) {
+    console.error("Error al sugerir comercial con IA", e)
+    alert("Error de conexión al sugerir comercial.")
+  } finally {
+    suggestingCommercial.value = false
+  }
+}
+
+const suggestBrandWithAI = async () => {
+  suggestingBrand.value = true
+  try {
+    const res = await fetch(`${API_BASE}/brands/suggest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newBrand.value.name
+      })
+    })
+    if (res.ok) {
+      const data = await res.json()
+      newBrand.value.name = data.name || newBrand.value.name
+      newBrand.value.slogan = data.slogan || ''
+      newBrand.value.industry = data.industry || ''
+      newBrand.value.description = data.description || ''
+    } else {
+      const data = await res.json()
+      alert("Error al sugerir marca: " + (data.error || "Error desconocido"))
+    }
+  } catch (e) {
+    console.error("Error al sugerir marca con IA", e)
+    alert("Error de conexión al sugerir marca.")
+  } finally {
+    suggestingBrand.value = false
+  }
+}
+
 const createBrand = async () => {
   try {
     const res = await fetch(`${API_BASE}/commercials/brands`, {
@@ -897,6 +1219,148 @@ const createBrand = async () => {
     }
   } catch (e) {
     alert("Error al guardar marca.")
+  }
+}
+
+const suggestCharacterWithAI = async () => {
+  suggestingCharacter.value = true
+  try {
+    const res = await fetch(`${API_BASE}/characters/suggest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newCharacter.value.name
+      })
+    })
+    if (res.ok) {
+      const data = await res.json()
+      newCharacter.value.name = data.name || newCharacter.value.name
+      newCharacter.value.role = data.role || ''
+      newCharacter.value.description = data.description || ''
+      newCharacter.value.personality = data.personality || ''
+      newCharacter.value.station_affinity = data.station_affinity || 'WCTR Sim Edition'
+    } else {
+      const data = await res.json()
+      alert("Error al sugerir personaje: " + (data.error || "Error desconocido"))
+    }
+  } catch (e) {
+    console.error("Error al sugerir personaje con IA", e)
+    alert("Error de conexión al sugerir personaje.")
+  } finally {
+    suggestingCharacter.value = false
+  }
+}
+
+const createCharacter = async () => {
+  try {
+    const res = await fetch(`${API_BASE}/characters`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newCharacter.value)
+    })
+    if (res.ok) {
+      const added = await res.json()
+      characters.value.push(added)
+      // Reset form
+      newCharacter.value = {
+        name: '',
+        role: '',
+        description: '',
+        personality: '',
+        station_affinity: 'WCTR Sim Edition'
+      }
+      alert("¡Personaje registrado exitosamente!")
+    } else {
+      const data = await res.json()
+      alert("Error al guardar personaje: " + (data.error || "Error desconocido"))
+    }
+  } catch (e) {
+    console.error("Error al registrar personaje", e)
+    alert("Error al conectar con el servidor.")
+  }
+}
+
+const parseTemplates = (rawText) => {
+  if (!rawText) return []
+  return rawText.split('\n').map(line => line.trim()).filter(line => line.length > 0)
+}
+
+const suggestStationWithAI = async () => {
+  suggestingStation.value = true
+  try {
+    const res = await fetch(`${API_BASE}/stations/suggest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newStation.value.name
+      })
+    })
+    if (res.ok) {
+      const data = await res.json()
+      newStation.value.name = data.name || newStation.value.name
+      newStation.value.host_name = data.host_name || ''
+      newStation.value.description = data.description || ''
+      newStation.value.personality = data.personality || ''
+      newStation.value.frequency = data.frequency || ''
+      newStation.value.emoji = data.emoji || '📻'
+      newStation.value.color = data.color || '#d97706'
+      newStation.value.intro_templates_raw = (data.intro_templates || []).join('\n')
+      newStation.value.outro_templates_raw = (data.outro_templates || []).join('\n')
+    } else {
+      const data = await res.json()
+      alert("Error al sugerir estación: " + (data.error || "Error desconocido"))
+    }
+  } catch (e) {
+    console.error("Error al sugerir estación con IA", e)
+    alert("Error de conexión al sugerir estación.")
+  } finally {
+    suggestingStation.value = false
+  }
+}
+
+const createStation = async () => {
+  try {
+    const intros = parseTemplates(newStation.value.intro_templates_raw)
+    const outros = parseTemplates(newStation.value.outro_templates_raw)
+    
+    const res = await fetch(`${API_BASE}/stations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newStation.value.name,
+        host_name: newStation.value.host_name,
+        description: newStation.value.description,
+        personality: newStation.value.personality,
+        frequency: newStation.value.frequency || '99.9 FM',
+        emoji: newStation.value.emoji || '📻',
+        color: newStation.value.color || '#d97706',
+        intro_templates: intros,
+        outro_templates: outros
+      })
+    })
+    if (res.ok) {
+      const added = await res.json()
+      stationsInfo.value[added.name] = added
+      // Reset form
+      newStation.value = {
+        name: '',
+        host_name: '',
+        description: '',
+        personality: '',
+        frequency: '',
+        emoji: '📻',
+        color: '#d97706',
+        intro_templates_raw: '',
+        outro_templates_raw: ''
+      }
+      alert("¡Estación registrada exitosamente!")
+    } else {
+      const data = await res.json()
+      alert("Error al registrar estación: " + (data.error || "Error desconocido"))
+    }
+  } catch (e) {
+    console.error("Error al guardar estación", e)
+    alert("Error al conectar con el servidor.")
   }
 }
 

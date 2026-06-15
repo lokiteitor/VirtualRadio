@@ -114,6 +114,30 @@ class ScriptGenerationEngine:
     def __init__(self, db_conn):
         self.conn = db_conn
 
+    def get_stations(self):
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM stations")
+            rows = cursor.fetchall()
+            if not rows:
+                return STATIONS
+            stations_dict = {}
+            for row in rows:
+                stations_dict[row["name"]] = {
+                    "host_name": row["host_name"],
+                    "description": row["description"],
+                    "personality": row["personality"],
+                    "frequency": row["frequency"],
+                    "emoji": row["emoji"],
+                    "color": row["color"],
+                    "intro_templates": json.loads(row["intro_templates"] or "[]"),
+                    "outro_templates": json.loads(row["outro_templates"] or "[]")
+                }
+            return stations_dict
+        except Exception as e:
+            print(f"Error loading stations from DB: {e}. Falling back to default STATIONS.")
+            return STATIONS
+
     def get_random_tracks(self, limit=3):
         cursor = self.conn.cursor()
         cursor.execute("SELECT * FROM music_tracks ORDER BY RANDOM() LIMIT ?", (limit,))
@@ -191,10 +215,11 @@ class ScriptGenerationEngine:
         )
 
     def generate_episode(self, station, duration_mins=15):
-        if station not in STATIONS:
+        stations = self.get_stations()
+        if station not in stations:
             station = "WCTR Sim Edition"
             
-        station_info = STATIONS[station]
+        station_info = stations[station]
         host_name = station_info["host_name"]
         
         # 1. Episode Planner Agent
@@ -285,10 +310,12 @@ class ScriptGenerationEngine:
 
     def procedural_script(self, station, host_name, tracks, news_item, commercial, character, memories):
         """Generates a high-quality satirical script procedurally based on template structures."""
+        stations = self.get_stations()
+        station_info = stations.get(station, STATIONS["WCTR Sim Edition"])
         segments = []
         
         # Intro
-        intro_text = random.choice(STATIONS[station]["intro_templates"])
+        intro_text = random.choice(station_info["intro_templates"])
         intro_text += f" Hoy escucharemos buena música, como a {tracks[0]['artist']} con su temazo '{tracks[0]['title']}'. Pero primero, ¡vamos a la música!"
         segments.append({
             "type": "speech",
@@ -456,7 +483,7 @@ class ScriptGenerationEngine:
         })
         
         # Outro
-        outro_text = random.choice(STATIONS[station]["outro_templates"])
+        outro_text = random.choice(station_info["outro_templates"])
         segments.append({
             "type": "speech",
             "speaker": "Host",

@@ -123,6 +123,23 @@ def init_db():
     )
     """)
     
+    # Create Stations table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS stations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE,
+        host_name TEXT,
+        description TEXT,
+        personality TEXT,
+        frequency TEXT,
+        emoji TEXT,
+        color TEXT,
+        intro_templates TEXT, -- JSON array of strings
+        outro_templates TEXT, -- JSON array of strings
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    
     # Insert seed data if tables are empty
     seed_data(cursor)
     
@@ -209,6 +226,56 @@ def seed_data(cursor):
         cursor.executemany(
             "INSERT INTO news_items (headline, summary, full_script, category, tone) VALUES (?, ?, ?, ?, ?)",
             news
+        )
+
+    # Seed default stations
+    cursor.execute("SELECT COUNT(*) FROM stations")
+    if cursor.fetchone()[0] == 0:
+        import json
+        default_stations = [
+            ("AgroTalk FM", "Clem", "Radio de debate centrada en la cosecha, precios de fertilizantes y chismes de tractor.", "Rustic, proud farmer, obsessed with fertilizer prices, machinery, and weather.", "95.2 FM", "🌾", "#10b981",
+             json.dumps([
+                 "¡Buenos días, agricultores! Aquí Clem en AgroTalk FM. Sacudan el barro de sus botas porque hoy tenemos un programa cargado de nitrógeno y verdades como puños.",
+                 "Bienvenidos de nuevo a AgroTalk FM, la única emisora que huele a estiércol fresco y trabajo duro. Soy Clem, y hoy hablaremos del precio de las cosechadoras."
+             ]),
+             json.dumps([
+                 "Eso es todo por hoy en AgroTalk FM. Recuerden: si el tractor hace un ruido raro, pisen el acelerador más fuerte. Habló Clem, nos vemos en el campo.",
+                 "Clem se despide de AgroTalk FM. Vuelvan a sus tractores, rieguen sus plantas y vigilen a sus vecinos. ¡Hasta la próxima, labradores!"
+             ])),
+             
+            ("Trucker News Radio", "Diesel Dan", "Noticias de autopistas, reportes de tráfico de larga distancia e historias del asfalto.", "Deep-voiced, road-weary, drinks too much coffee, speaks in trucker slang (10-4, copy that).", "104.8 FM", "🚛", "#6b7280",
+             json.dumps([
+                 "Aquí Diesel Dan en la frecuencia de Trucker News Radio. Para todos los que devoran asfalto a esta hora, mantengan los ojos abiertos y la cafetera encendida.",
+                 "Saludos, nómadas de la carretera. Les habla Diesel Dan. Ajusten sus espejos, pongan quinta marcha y acompáñenme en este viaje de noticias y diésel."
+             ]),
+             json.dumps([
+                 "Diesel Dan fuera. Mantengan las ruedas girando y los radares vigilados. Nos leemos en la próxima parada de camiones. 10-4.",
+                 "Eso es todo desde la cabina de Trucker News Radio. Conduzcan con cuidado y no coman los burritos de la estación de servicio de la salida 4. Corto y cierro."
+             ])),
+             
+            ("SimNation News", "Audrey Vance", "Boletines de simulación serios y objetivos sobre la economía regional e infraestructura.", "Crisp, professional, highly articulated news anchor, takes trivial simulation events extremely seriously.", "88.0 FM", "👔", "#3b82f6",
+             json.dumps([
+                 "Muy buenas tardes. Les saluda Audrey Vance para SimNation News, transmitiendo las noticias más relevantes de la comunidad de simulación global.",
+                 "Bienvenidos a la emisión de SimNation News. Les acompaña Audrey Vance. Analizaremos en detalle el impacto del último parche de rendimiento y el estado de la economía local."
+             ]),
+             json.dumps([
+                 "Gracias por su sintonía. Les ha informado Audrey Vance para SimNation News. Manténganse informados y sigan simulando con responsabilidad.",
+                 "Esto concluye nuestro boletín. Soy Audrey Vance. Recuerden que la realidad es solo otra simulación que no podemos reiniciar. Buenas noches."
+             ])),
+             
+            ("WCTR Sim Edition", "Richard 'Dick' Brainwave", "Teorías locas, llamadas telefónicas extravagantes y secretos alienígenas de los cultivos.", "Highly energetic, paranoid, believes the government is using crop circles to communicate with Martian cows, speaks in frantic bursts.", "99.1 FM", "👽", "#ec4899",
+             json.dumps([
+                 "¡DESPIERTEN, OVEJAS! Soy Dick Brainwave en WCTR Sim Edition. Hoy les revelaré cómo las corporaciones de tractores están insertando microchips en las semillas de trigo.",
+                 "¡Están escuchando la verdad cruda en WCTR Sim Edition con Dick Brainwave! ¿Es el GPS de su camión una sonda alienígena? Spoiler: ¡SÍ LO ES!"
+             ]),
+             json.dumps([
+                 "La verdad está ahí fuera, pero probablemente esté censurada por el lobby del compost. Dick Brainwave se despide. ¡No miren directamente a los espantapájaros!",
+                 "¡Apaguen sus teléfonos! ¡Quemen sus manuales de conductor! Dick Brainwave les dice adiós desde el búnker de WCTR. ¡Ellos nos están escuchando!"
+             ]))
+        ]
+        cursor.executemany(
+            "INSERT INTO stations (name, host_name, description, personality, frequency, emoji, color, intro_templates, outro_templates) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            default_stations
         )
 
 if __name__ == "__main__":
