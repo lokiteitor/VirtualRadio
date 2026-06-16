@@ -1,0 +1,2120 @@
+openapi: 3.1.0
+
+info:
+  title: VirtualRadio API
+  version: 1.0.0
+  description: |
+    API REST de **VirtualRadio**: plataforma que genera de forma automatizada
+    programas de radio satíricos (estilo WCTR) para videojuegos de simulación
+    (Farming Simulator 25, Euro Truck Simulator 2, etc.).
+
+    El backend orquesta una biblioteca musical local, un universo narrativo
+    compartido (noticias, comerciales, personajes y memoria narrativa) y un
+    pipeline de generación por agentes que produce episodios de audio listos
+    para reproducir.
+
+    ## Autenticación
+    Autenticación mediante **JWT** (Flask-JWT-Extended). `POST /auth/login`
+    emite un *access token* y un *refresh token*; `POST /auth/refresh` renueva
+    el *access token* a partir de un *refresh token* válido. Todos los endpoints
+    salvo los de `auth` y `health` requieren `Authorization: Bearer <access_token>`.
+
+    ## Autorización (RBAC)
+    Modelo deliberadamente simple: un único rol de sistema `USER` y un único
+    scope efectivo `own`. Cada consulta se filtra por `owner_id = current_user.id`.
+    El `owner_id` se toma **siempre del token**, nunca del body. El acceso a un
+    recurso de otro usuario devuelve **404** (no 403) para no revelar su existencia.
+
+    ## Contrato de respuestas
+    - Éxito: `{ "data": ..., "meta": {...} }`
+    - Error: `{ "error": { "code", "message", "details" } }`
+  contact:
+    name: Equipo de Plataforma / Backend
+  license:
+    name: Propietario
+
+servers:
+  - url: /api/v1
+    description: Prefijo base de la API (todas las rutas cuelgan de /api/v1)
+
+tags:
+  - name: Health
+    description: Comprobación de estado del servicio
+  - name: Auth
+    description: Registro, login y renovación de tokens
+  - name: Stations
+    description: Estaciones de radio configurables
+  - name: Episodes
+    description: Generación, catálogo y exportación de episodios
+  - name: Jobs
+    description: Estado de los jobs de generación asíncrona
+  - name: Music
+    description: Biblioteca musical (indexación de MP3)
+  - name: News
+    description: Biblioteca compartida de noticias
+  - name: Brands
+    description: Marcas ficticias del universo compartido
+  - name: Commercials
+    description: Anuncios de las marcas
+  - name: Characters
+    description: Personajes recurrentes y su memoria narrativa
+  - name: Story Events
+    description: Arcos narrativos del universo
+  - name: Universe
+    description: Resumen y estadísticas del universo del usuario
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Health
+  # ---------------------------------------------------------------------------
+  /health:
+    get:
+      tags: [Health]
+      summary: Healthcheck del servicio
+      description: Endpoint público de comprobación de salud (sin autenticación).
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: El servicio está operativo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: ok
+                      version:
+                        type: string
+                        example: 1.0.0
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+
+  # ---------------------------------------------------------------------------
+  # Auth
+  # ---------------------------------------------------------------------------
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Registro de usuario
+      description: |
+        Da de alta una cuenta de usuario y siembra su universo por defecto
+        (estaciones, marcas, comerciales, personajes y noticias). Endpoint público.
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Usuario creado y tokens emitidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokensResponse'
+        '409':
+          description: El email ya está registrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Inicio de sesión
+      description: Verifica credenciales y emite un access token y un refresh token. Endpoint público.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Autenticación correcta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokensResponse'
+        '401':
+          description: Credenciales inválidas o usuario inactivo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Renovar access token
+      description: |
+        Emite un nuevo *access token* a partir de un *refresh token* válido.
+        Debe enviarse el refresh token en el header `Authorization: Bearer <refresh_token>`.
+      operationId: refresh
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Nuevo access token emitido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      access_token:
+                        type: string
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ---------------------------------------------------------------------------
+  # Stations
+  # ---------------------------------------------------------------------------
+  /stations:
+    get:
+      tags: [Stations]
+      summary: Listar estaciones
+      description: 'Permiso: `station:read:own`.'
+      operationId: listStations
+      responses:
+        '200':
+          description: Lista de estaciones del usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Stations]
+      summary: Crear estación
+      description: 'Permiso: `station:create:own`. El `owner_id` se toma del token.'
+      operationId: createStation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StationInput'
+      responses:
+        '201':
+          description: Estación creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /stations/suggest:
+    post:
+      tags: [Stations]
+      summary: Sugerir estación por IA
+      description: |
+        Genera una propuesta de estación con el LLM (con fallback procedural
+        determinista si el LLM no responde). Permiso: `station:suggest:own`.
+      operationId: suggestStation
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestRequest'
+      responses:
+        '200':
+          description: Sugerencia de estación (no persistida)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /stations/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    get:
+      tags: [Stations]
+      summary: Obtener estación
+      description: 'Permiso: `station:read:own`.'
+      operationId: getStation
+      responses:
+        '200':
+          description: Estación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Stations]
+      summary: Actualizar estación
+      description: 'Permiso: `station:update:own`.'
+      operationId: updateStation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StationInput'
+      responses:
+        '200':
+          description: Estación actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Stations]
+      summary: Eliminar estación
+      description: 'Permiso: `station:delete:own`. Borra en cascada episodios y jobs asociados.'
+      operationId: deleteStation
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Episodes
+  # ---------------------------------------------------------------------------
+  /episodes:
+    get:
+      tags: [Episodes]
+      summary: Listar episodios
+      description: 'Permiso: `episode:read:own`. Filtrado por `owner_id`.'
+      operationId: listEpisodes
+      parameters:
+        - name: station_id
+          in: query
+          required: false
+          description: Filtrar episodios por estación
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Lista de episodios del usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EpisodeList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /episodes/generate:
+    post:
+      tags: [Episodes]
+      summary: Generar episodio
+      description: |
+        Encola un job de generación de episodio para una estación y devuelve el
+        UUID del job para hacer polling vía `GET /jobs/{id}`. El pipeline corre
+        de forma asíncrona en el worker Celery. Permiso: `episode:generate:own`.
+      operationId: generateEpisode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateEpisodeRequest'
+      responses:
+        '202':
+          description: Job encolado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: La estación indicada no existe o pertenece a otro usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /episodes/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    get:
+      tags: [Episodes]
+      summary: Obtener episodio
+      description: 'Permiso: `episode:read:own`. Incluye `script_json` parseado.'
+      operationId: getEpisode
+      responses:
+        '200':
+          description: Episodio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EpisodeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Episodes]
+      summary: Eliminar episodio
+      description: |
+        Elimina el registro del episodio y su archivo MP3 del volumen de media.
+        Permiso: `episode:delete:own`.
+      operationId: deleteEpisode
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /episodes/{id}/audio:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    get:
+      tags: [Episodes]
+      summary: Servir audio del episodio
+      description: |
+        Devuelve el MP3 exportado del episodio, con control de acceso por
+        propietario. Permiso: `episode:read:own`. Soporta peticiones por rango
+        (`Range`) para streaming/seek desde el reproductor.
+      operationId: getEpisodeAudio
+      responses:
+        '200':
+          description: Stream de audio MP3
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+        '206':
+          description: Contenido parcial (respuesta a una petición Range)
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: El episodio no existe, pertenece a otro usuario o aún no tiene audio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ---------------------------------------------------------------------------
+  # Jobs
+  # ---------------------------------------------------------------------------
+  /jobs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    get:
+      tags: [Jobs]
+      summary: Estado de un job de generación
+      description: |
+        Devuelve el estado y progreso de un job de generación de episodio para
+        hacer polling. Permiso: `job:read:own`.
+      operationId: getJob
+      responses:
+        '200':
+          description: Estado del job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Music
+  # ---------------------------------------------------------------------------
+  /music:
+    get:
+      tags: [Music]
+      summary: Listar pistas musicales
+      description: |
+        Lista la biblioteca musical del usuario; el `meta` incluye la duración
+        total. Permiso: `music:read:own`.
+      operationId: listMusic
+      responses:
+        '200':
+          description: Lista de pistas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MusicTrackList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /music/upload:
+    post:
+      tags: [Music]
+      summary: Subir pista MP3
+      description: |
+        Sube un archivo MP3 (multipart), extrae metadatos y lo registra con
+        deduplicación por hash MD5 dentro del ámbito del usuario.
+        Permiso: `music:upload:own`.
+      operationId: uploadMusic
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Archivo MP3 a indexar
+      responses:
+        '201':
+          description: Pista registrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MusicTrackResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: La pista ya existe (hash duplicado para el usuario)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /music/scan:
+    post:
+      tags: [Music]
+      summary: Escanear carpeta de música
+      description: |
+        Recorre la carpeta de música del usuario, da de alta archivos nuevos y
+        limpia los inexistentes, sincronizando el sistema de archivos con la BD.
+        Permiso: `music:scan:own`.
+      operationId: scanMusic
+      responses:
+        '200':
+          description: Resultado del escaneo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      added:
+                        type: integer
+                        description: Pistas nuevas indexadas
+                      removed:
+                        type: integer
+                        description: Pistas eliminadas (ya no existen en disco)
+                      total:
+                        type: integer
+                        description: Total de pistas tras la sincronización
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /music/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    delete:
+      tags: [Music]
+      summary: Eliminar pista
+      description: 'Permiso: `music:delete:own`.'
+      operationId: deleteMusic
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # News
+  # ---------------------------------------------------------------------------
+  /news:
+    get:
+      tags: [News]
+      summary: Listar noticias
+      description: 'Permiso: `news:read:own`.'
+      operationId: listNews
+      parameters:
+        - name: is_active
+          in: query
+          required: false
+          description: Filtrar por estado activo
+          schema:
+            type: boolean
+        - name: category
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/NewsCategory'
+      responses:
+        '200':
+          description: Lista de noticias
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsItemList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [News]
+      summary: Crear noticia
+      description: 'Permiso: `news:create:own`.'
+      operationId: createNews
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewsItemInput'
+      responses:
+        '201':
+          description: Noticia creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsItemResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /news/suggest:
+    post:
+      tags: [News]
+      summary: Sugerir noticia por IA
+      description: 'Permiso: `news:suggest:own`. Fallback procedural si el LLM falla.'
+      operationId: suggestNews
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestRequest'
+      responses:
+        '200':
+          description: Sugerencia de noticia (no persistida)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsItemResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /news/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    get:
+      tags: [News]
+      summary: Obtener noticia
+      description: 'Permiso: `news:read:own`.'
+      operationId: getNews
+      responses:
+        '200':
+          description: Noticia
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsItemResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [News]
+      summary: Actualizar noticia
+      description: 'Permiso: `news:update:own`.'
+      operationId: updateNews
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewsItemInput'
+      responses:
+        '200':
+          description: Noticia actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsItemResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [News]
+      summary: Eliminar noticia
+      description: 'Permiso: `news:delete:own`.'
+      operationId: deleteNews
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Brands
+  # ---------------------------------------------------------------------------
+  /brands:
+    get:
+      tags: [Brands]
+      summary: Listar marcas
+      description: 'Permiso: `brand:read:own`.'
+      operationId: listBrands
+      responses:
+        '200':
+          description: Lista de marcas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Brands]
+      summary: Crear marca
+      description: 'Permiso: `brand:create:own`.'
+      operationId: createBrand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandInput'
+      responses:
+        '201':
+          description: Marca creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /brands/suggest:
+    post:
+      tags: [Brands]
+      summary: Sugerir marca por IA
+      description: 'Permiso: `brand:suggest:own`. Fallback procedural si el LLM falla.'
+      operationId: suggestBrand
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestRequest'
+      responses:
+        '200':
+          description: Sugerencia de marca (no persistida)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /brands/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    get:
+      tags: [Brands]
+      summary: Obtener marca
+      description: 'Permiso: `brand:read:own`.'
+      operationId: getBrand
+      responses:
+        '200':
+          description: Marca
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Brands]
+      summary: Actualizar marca
+      description: 'Permiso: `brand:update:own`.'
+      operationId: updateBrand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandInput'
+      responses:
+        '200':
+          description: Marca actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Brands]
+      summary: Eliminar marca
+      description: 'Permiso: `brand:delete:own`. Borra en cascada sus comerciales.'
+      operationId: deleteBrand
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Commercials
+  # ---------------------------------------------------------------------------
+  /commercials:
+    get:
+      tags: [Commercials]
+      summary: Listar comerciales
+      description: 'Permiso: `commercial:read:own`.'
+      operationId: listCommercials
+      parameters:
+        - name: brand_id
+          in: query
+          required: false
+          description: Filtrar comerciales por marca
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Lista de comerciales
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommercialList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Commercials]
+      summary: Crear comercial
+      description: 'Permiso: `commercial:create:own`. Requiere una marca existente del usuario.'
+      operationId: createCommercial
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommercialInput'
+      responses:
+        '201':
+          description: Comercial creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommercialResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: La marca indicada no existe o pertenece a otro usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /commercials/suggest:
+    post:
+      tags: [Commercials]
+      summary: Sugerir comercial por IA
+      description: 'Permiso: `commercial:suggest:own`. Fallback procedural si el LLM falla.'
+      operationId: suggestCommercial
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/SuggestRequest'
+                - type: object
+                  properties:
+                    brand_id:
+                      type: string
+                      format: uuid
+                      description: Marca para la que generar el comercial
+      responses:
+        '200':
+          description: Sugerencia de comercial (no persistida)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommercialResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /commercials/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    get:
+      tags: [Commercials]
+      summary: Obtener comercial
+      description: 'Permiso: `commercial:read:own`.'
+      operationId: getCommercial
+      responses:
+        '200':
+          description: Comercial
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommercialResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Commercials]
+      summary: Actualizar comercial
+      description: 'Permiso: `commercial:update:own`.'
+      operationId: updateCommercial
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommercialInput'
+      responses:
+        '200':
+          description: Comercial actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommercialResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Commercials]
+      summary: Eliminar comercial
+      description: 'Permiso: `commercial:delete:own`.'
+      operationId: deleteCommercial
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Characters
+  # ---------------------------------------------------------------------------
+  /characters:
+    get:
+      tags: [Characters]
+      summary: Listar personajes
+      description: 'Permiso: `character:read:own`.'
+      operationId: listCharacters
+      responses:
+        '200':
+          description: Lista de personajes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Characters]
+      summary: Crear personaje
+      description: 'Permiso: `character:create:own`.'
+      operationId: createCharacter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CharacterInput'
+      responses:
+        '201':
+          description: Personaje creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /characters/suggest:
+    post:
+      tags: [Characters]
+      summary: Sugerir personaje por IA
+      description: 'Permiso: `character:suggest:own`. Fallback procedural si el LLM falla.'
+      operationId: suggestCharacter
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuggestRequest'
+      responses:
+        '200':
+          description: Sugerencia de personaje (no persistida)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /characters/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    get:
+      tags: [Characters]
+      summary: Obtener personaje
+      description: 'Permiso: `character:read:own`.'
+      operationId: getCharacter
+      responses:
+        '200':
+          description: Personaje
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Characters]
+      summary: Actualizar personaje
+      description: 'Permiso: `character:update:own`.'
+      operationId: updateCharacter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CharacterInput'
+      responses:
+        '200':
+          description: Personaje actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Characters]
+      summary: Eliminar personaje
+      description: 'Permiso: `character:delete:own`. Borra en cascada sus memorias.'
+      operationId: deleteCharacter
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /characters/{id}/memories:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    get:
+      tags: [Characters]
+      summary: Memorias del personaje
+      description: |
+        Devuelve la memoria narrativa del personaje (eventos pasados que
+        mantienen la continuidad). Permiso: `character:read_memories:own`.
+      operationId: getCharacterMemories
+      responses:
+        '200':
+          description: Lista de memorias
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterMemoryList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Story Events
+  # ---------------------------------------------------------------------------
+  /story-events:
+    get:
+      tags: [Story Events]
+      summary: Listar eventos narrativos
+      description: 'Permiso: `story_event:read:own`.'
+      operationId: listStoryEvents
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/StoryStatus'
+      responses:
+        '200':
+          description: Lista de eventos narrativos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoryEventList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Story Events]
+      summary: Crear evento narrativo
+      description: 'Permiso: `story_event:create:own`.'
+      operationId: createStoryEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoryEventInput'
+      responses:
+        '201':
+          description: Evento creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoryEventResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /story-events/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    get:
+      tags: [Story Events]
+      summary: Obtener evento narrativo
+      description: 'Permiso: `story_event:read:own`.'
+      operationId: getStoryEvent
+      responses:
+        '200':
+          description: Evento narrativo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoryEventResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Story Events]
+      summary: Actualizar evento narrativo
+      description: 'Permiso: `story_event:update:own`.'
+      operationId: updateStoryEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoryEventInput'
+      responses:
+        '200':
+          description: Evento actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoryEventResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [Story Events]
+      summary: Eliminar evento narrativo
+      description: 'Permiso: `story_event:delete:own`.'
+      operationId: deleteStoryEvent
+      responses:
+        '204':
+          $ref: '#/components/responses/NoContent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Universe
+  # ---------------------------------------------------------------------------
+  /universe/summary:
+    get:
+      tags: [Universe]
+      summary: Resumen del universo
+      description: |
+        Devuelve conteos agregados del universo del usuario (estaciones,
+        noticias, comerciales, marcas, personajes, pistas, episodios, etc.).
+        Permiso: `universe:read:own`.
+      operationId: getUniverseSummary
+      responses:
+        '200':
+          description: Resumen/estadísticas del universo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UniverseSummaryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+# =============================================================================
+# Components
+# =============================================================================
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'Token JWT emitido por `/auth/login` o `/auth/refresh`.'
+
+  parameters:
+    IdParam:
+      name: id
+      in: path
+      required: true
+      description: Identificador UUID del recurso
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    NoContent:
+      description: Operación realizada con éxito (sin contenido)
+    Unauthorized:
+      description: Token ausente, inválido o expirado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: Token inválido o ausente
+              details: {}
+    NotFound:
+      description: |
+        El recurso no existe o pertenece a otro usuario (se devuelve 404 en
+        ambos casos para no revelar su existencia).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: NOT_FOUND
+              message: Recurso no encontrado
+              details: {}
+    ValidationError:
+      description: Error de validación de los datos enviados
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Los datos enviados no son válidos
+              details:
+                name: ["El campo es obligatorio"]
+
+  schemas:
+    # ---- Envoltorios y comunes ------------------------------------------------
+    Meta:
+      type: object
+      description: Metadatos de la respuesta (paginación, conteos, etc.)
+      additionalProperties: true
+      example: {}
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Código de error legible por máquina
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              description: Descripción del error
+            details:
+              type: object
+              description: Detalles adicionales (ej. errores por campo)
+              additionalProperties: true
+
+    Timestamps:
+      type: object
+      properties:
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    # ---- Enums ----------------------------------------------------------------
+    NewsCategory:
+      type: string
+      description: Categoría temática de la noticia
+      enum:
+        - Agricultura
+        - Transporte
+        - Economía
+        - Tecnología
+        - Clima
+        - Comunidad
+        - Política Local
+        - Sucesos Extraños
+
+    NewsTone:
+      type: string
+      description: Tono narrativo de la noticia
+      enum:
+        - Serio
+        - Sensacionalista
+        - Misterioso
+        - Absurdo
+
+    StoryStatus:
+      type: string
+      description: Estado de un arco narrativo
+      enum:
+        - active
+        - resolved
+
+    JobStatus:
+      type: string
+      description: Estado del pipeline de generación
+      enum:
+        - queued
+        - planning
+        - synthesizing
+        - mixing
+        - completed
+        - failed
+
+    SegmentType:
+      type: string
+      description: Tipo de segmento del guion
+      enum:
+        - speech
+        - music
+        - fx
+
+    # ---- Auth -----------------------------------------------------------------
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+        password:
+          type: string
+          format: password
+          minLength: 8
+        display_name:
+          type: string
+          maxLength: 120
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+          readOnly: true
+      allOf:
+        - $ref: '#/components/schemas/Timestamps'
+
+    AuthTokensResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            access_token:
+              type: string
+            refresh_token:
+              type: string
+            user:
+              $ref: '#/components/schemas/User'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    SuggestRequest:
+      type: object
+      description: Pista/contexto opcional para guiar la sugerencia del LLM.
+      properties:
+        prompt:
+          type: string
+          description: Indicación libre para orientar la generación
+        context:
+          type: object
+          description: Contexto adicional (ej. estación, tema)
+          additionalProperties: true
+
+    # ---- Stations -------------------------------------------------------------
+    StationInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          description: Nombre de la estación (único por usuario)
+        host_name:
+          type: string
+          maxLength: 120
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        personality:
+          type: string
+          nullable: true
+        frequency:
+          type: string
+          maxLength: 20
+          nullable: true
+          example: "99.1 FM"
+        emoji:
+          type: string
+          maxLength: 16
+          nullable: true
+        color:
+          type: string
+          maxLength: 9
+          nullable: true
+          example: "#FFAA00"
+        intro_templates:
+          type: array
+          items:
+            type: string
+          default: []
+        outro_templates:
+          type: array
+          items:
+            type: string
+          default: []
+
+    Station:
+      allOf:
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            owner_id:
+              type: string
+              format: uuid
+              readOnly: true
+        - $ref: '#/components/schemas/StationInput'
+        - $ref: '#/components/schemas/Timestamps'
+
+    StationResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Station'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    StationList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Station'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    # ---- Episodes -------------------------------------------------------------
+    ScriptSegment:
+      type: object
+      description: Segmento del guion del episodio.
+      properties:
+        type:
+          $ref: '#/components/schemas/SegmentType'
+        speaker:
+          type: string
+          nullable: true
+          description: Locutor/personaje (para segmentos speech)
+        text:
+          type: string
+          nullable: true
+          description: Texto a sintetizar (para segmentos speech)
+        voice_id:
+          type: string
+          nullable: true
+          description: Voz Gemini TTS usada
+        effect:
+          type: string
+          nullable: true
+          description: Efecto aplicado (ej. telefonía, sweeper)
+        track_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Pista musical referenciada (para segmentos music)
+        duration_seconds:
+          type: number
+          format: float
+          nullable: true
+
+    GenerateEpisodeRequest:
+      type: object
+      required: [station_id]
+      properties:
+        station_id:
+          type: string
+          format: uuid
+          description: Estación para la que generar el episodio
+
+    Episode:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        owner_id:
+          type: string
+          format: uuid
+          readOnly: true
+        station_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 200
+        duration:
+          type: number
+          format: float
+          description: Duración total en segundos (0 hasta compilar)
+          readOnly: true
+        script_json:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScriptSegment'
+        audio_path:
+          type: string
+          maxLength: 500
+          nullable: true
+          readOnly: true
+          description: Ruta relativa del MP3 exportado
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    EpisodeResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Episode'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    EpisodeList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Episode'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    # ---- Jobs -----------------------------------------------------------------
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        owner_id:
+          type: string
+          format: uuid
+          readOnly: true
+        station_id:
+          type: string
+          format: uuid
+        episode_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Episodio resultante (cuando completa)
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        error:
+          type: string
+          nullable: true
+          description: Mensaje de error si status = failed
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    JobResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Job'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    # ---- Music ----------------------------------------------------------------
+    MusicTrack:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        owner_id:
+          type: string
+          format: uuid
+          readOnly: true
+        file_path:
+          type: string
+          maxLength: 700
+          readOnly: true
+        title:
+          type: string
+          maxLength: 255
+          nullable: true
+        artist:
+          type: string
+          maxLength: 255
+          nullable: true
+        album:
+          type: string
+          maxLength: 255
+          nullable: true
+        duration:
+          type: number
+          format: float
+          nullable: true
+        file_hash:
+          type: string
+          description: MD5 del archivo (32 caracteres)
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    MusicTrackResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/MusicTrack'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    MusicTrackList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MusicTrack'
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/Meta'
+            - type: object
+              properties:
+                total_duration:
+                  type: number
+                  format: float
+                  description: Duración total de la biblioteca en segundos
+                count:
+                  type: integer
+
+    # ---- News -----------------------------------------------------------------
+    NewsItemInput:
+      type: object
+      required: [headline, category, tone]
+      properties:
+        headline:
+          type: string
+          maxLength: 300
+        summary:
+          type: string
+          nullable: true
+        full_script:
+          type: string
+          nullable: true
+          description: Guion de lectura (3-5 frases)
+        category:
+          $ref: '#/components/schemas/NewsCategory'
+        tone:
+          $ref: '#/components/schemas/NewsTone'
+        is_active:
+          type: boolean
+          default: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    NewsItem:
+      allOf:
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            owner_id:
+              type: string
+              format: uuid
+              readOnly: true
+        - $ref: '#/components/schemas/NewsItemInput'
+        - $ref: '#/components/schemas/Timestamps'
+
+    NewsItemResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/NewsItem'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    NewsItemList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/NewsItem'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    # ---- Brands ---------------------------------------------------------------
+    BrandInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 150
+          description: Nombre de la marca (único por usuario)
+        description:
+          type: string
+          nullable: true
+        industry:
+          type: string
+          maxLength: 100
+          nullable: true
+        slogan:
+          type: string
+          maxLength: 255
+          nullable: true
+        is_active:
+          type: boolean
+          default: true
+
+    Brand:
+      allOf:
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            owner_id:
+              type: string
+              format: uuid
+              readOnly: true
+        - $ref: '#/components/schemas/BrandInput'
+        - $ref: '#/components/schemas/Timestamps'
+
+    BrandResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Brand'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    BrandList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Brand'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    # ---- Commercials ----------------------------------------------------------
+    CommercialInput:
+      type: object
+      required: [brand_id, title, script]
+      properties:
+        brand_id:
+          type: string
+          format: uuid
+          description: Marca asociada (debe pertenecer al usuario)
+        title:
+          type: string
+          maxLength: 200
+        script:
+          type: string
+          description: Guion del comercial (3-5 frases)
+        duration:
+          type: number
+          format: float
+          default: 30
+        campaign:
+          type: string
+          maxLength: 150
+          nullable: true
+        is_active:
+          type: boolean
+          default: true
+
+    Commercial:
+      allOf:
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            owner_id:
+              type: string
+              format: uuid
+              readOnly: true
+        - $ref: '#/components/schemas/CommercialInput'
+        - $ref: '#/components/schemas/Timestamps'
+
+    CommercialResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Commercial'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    CommercialList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Commercial'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    # ---- Characters -----------------------------------------------------------
+    CharacterInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 150
+          description: Nombre del personaje (único por usuario)
+        role:
+          type: string
+          maxLength: 150
+          nullable: true
+          example: "Granjero jubilado"
+        description:
+          type: string
+          nullable: true
+        personality:
+          type: string
+          nullable: true
+        station_affinity:
+          type: string
+          nullable: true
+          description: Estaciones que escucha (lista separada por comas)
+
+    Character:
+      allOf:
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            owner_id:
+              type: string
+              format: uuid
+              readOnly: true
+            first_appearance:
+              type: string
+              format: date-time
+              readOnly: true
+            last_appearance:
+              type: string
+              format: date-time
+              readOnly: true
+        - $ref: '#/components/schemas/CharacterInput'
+        - $ref: '#/components/schemas/Timestamps'
+
+    CharacterResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Character'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    CharacterList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Character'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    CharacterMemory:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        owner_id:
+          type: string
+          format: uuid
+          readOnly: true
+        character_id:
+          type: string
+          format: uuid
+        episode_id:
+          type: string
+          format: uuid
+          nullable: true
+        memory:
+          type: string
+          description: Hecho narrativo recordado
+        importance:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 5
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    CharacterMemoryList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CharacterMemory'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    # ---- Story Events ---------------------------------------------------------
+    StoryEventInput:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          nullable: true
+        related_characters:
+          type: string
+          nullable: true
+          description: Personajes implicados (lista)
+        status:
+          $ref: '#/components/schemas/StoryStatus'
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    StoryEvent:
+      allOf:
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            owner_id:
+              type: string
+              format: uuid
+              readOnly: true
+        - $ref: '#/components/schemas/StoryEventInput'
+        - $ref: '#/components/schemas/Timestamps'
+
+    StoryEventResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/StoryEvent'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    StoryEventList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoryEvent'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
+    # ---- Universe -------------------------------------------------------------
+    UniverseSummaryResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            stations:
+              type: integer
+            episodes:
+              type: integer
+            news_items:
+              type: integer
+            brands:
+              type: integer
+            commercials:
+              type: integer
+            characters:
+              type: integer
+            music_tracks:
+              type: integer
+            story_events:
+              type: integer
+        meta:
+          $ref: '#/components/schemas/Meta'

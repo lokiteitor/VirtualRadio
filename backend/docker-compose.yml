@@ -1,0 +1,95 @@
+name: virtualradio
+
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: virtualradio
+      POSTGRES_PASSWORD: virtualradio
+      POSTGRES_DB: virtualradio
+    # PostgreSQL 18+ official images store data in a major-version subdirectory;
+    # mount the volume at /var/lib/postgresql (not .../data).
+    volumes:
+      - pgdata:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U virtualradio"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://virtualradio:virtualradio@db:5432/virtualradio
+      REDIS_URL: redis://redis:6379/0
+      MEDIA_ROOT: /data/media
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/adc.json
+    volumes:
+      - media:/data/media
+      # ADC for Vertex AI (no-op if ADC_PATH is unset → mounts /dev/null).
+      - ${ADC_PATH:-/dev/null}:/secrets/adc.json:ro
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Apply migrations + seed the role catalog, then serve.
+    command: >
+      sh -c "flask db upgrade &&
+             flask seed-roles &&
+             gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 120 wsgi:app"
+
+  worker:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://virtualradio:virtualradio@db:5432/virtualradio
+      REDIS_URL: redis://redis:6379/0
+      MEDIA_ROOT: /data/media
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/adc.json
+    volumes:
+      - media:/data/media
+      - ${ADC_PATH:-/dev/null}:/secrets/adc.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A celery_worker.celery_app worker --beat --loglevel=info
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        # Baked into the client bundle: must be reachable from the user's browser
+        # (the api service is published on the host at :5000).
+        NUXT_PUBLIC_API_BASE: http://localhost:5000/api/v1
+    environment:
+      NUXT_PUBLIC_API_BASE: http://localhost:5000/api/v1
+      HOST: 0.0.0.0
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  media:
