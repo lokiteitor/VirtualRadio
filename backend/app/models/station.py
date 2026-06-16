@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.extensions import db
 from app.models.base import OwnerMixin, TimestampMixin, UUIDPkMixin
+from app.models.enums import GEMINI_VOICE_ENUM_NAME, GeminiVoice, pg_enum
 
 
 class Station(UUIDPkMixin, OwnerMixin, TimestampMixin, db.Model):
@@ -19,6 +20,13 @@ class Station(UUIDPkMixin, OwnerMixin, TimestampMixin, db.Model):
     host_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     personality: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Configurable TTS voices (null → role default in tts_client.ROLE_VOICES).
+    host_voice: Mapped[GeminiVoice | None] = mapped_column(
+        pg_enum(GeminiVoice, GEMINI_VOICE_ENUM_NAME), nullable=True, default=None
+    )
+    reporter_voice: Mapped[GeminiVoice | None] = mapped_column(
+        pg_enum(GeminiVoice, GEMINI_VOICE_ENUM_NAME), nullable=True, default=None
+    )
     frequency: Mapped[str | None] = mapped_column(String(20), nullable=True)
     emoji: Mapped[str | None] = mapped_column(String(16), nullable=True)
     color: Mapped[str | None] = mapped_column(String(9), nullable=True)

@@ -5,6 +5,8 @@ export interface Station {
   host_name: string | null;
   description: string | null;
   personality: string | null;
+  host_voice: string | null;
+  reporter_voice: string | null;
   frequency: string | null;
   emoji: string | null;
   color: string | null;
@@ -19,6 +21,8 @@ export interface StationInput {
   host_name?: string | null;
   description?: string | null;
   personality?: string | null;
+  host_voice?: string | null;
+  reporter_voice?: string | null;
   frequency?: string | null;
   emoji?: string | null;
   color?: string | null;

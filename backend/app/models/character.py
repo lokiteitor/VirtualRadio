@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.extensions import db
 from app.models.base import OwnerMixin, TimestampMixin, UUIDPkMixin
+from app.models.enums import GEMINI_VOICE_ENUM_NAME, GeminiVoice, pg_enum
 
 
 class Character(UUIDPkMixin, OwnerMixin, TimestampMixin, db.Model):
@@ -21,6 +22,10 @@ class Character(UUIDPkMixin, OwnerMixin, TimestampMixin, db.Model):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     personality: Mapped[str | None] = mapped_column(Text, nullable=True)
     station_affinity: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Configurable caller TTS voice (null → "caller" role default).
+    voice: Mapped[GeminiVoice | None] = mapped_column(
+        pg_enum(GeminiVoice, GEMINI_VOICE_ENUM_NAME), nullable=True, default=None
+    )
     first_appearance: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -2,40 +2,56 @@
 
 Turns a planned news item into the spoken segments of a radio newscast: a host
 transition into the news, the reporter reading the story, and the host's
-station-specific reaction (ported verbatim from the prototype's procedural
-script). All text is Spanish and keeps the satirical tone.
+station-specific reaction. All text is Spanish and keeps the satirical tone.
+
+The host never references the commercials here: the news reaction closes the
+story and hands back to the show / music, never to a sponsor or ad break (the
+ads run on their own in a dedicated break — see ``episode_assembly``).
 """
 from __future__ import annotations
 
 from typing import Any
 
-# Host reactions to the news, keyed by station name (prototype-accurate).
+# Host reactions to the news, keyed by station name. These close the story and
+# hand back to the show; they MUST NOT mention sponsors / commercials / ad
+# breaks (the host never talks about the commercials).
 _HOST_REACTIONS: dict[str, str] = {
     "WCTR Sim Edition": (
         "¡Lo sabía! ¡El Cheddar gigante es solo la fase uno del plan espacial "
-        "alienígena! No se dejen engañar. Vamos a unos patrocinadores rápidos..."
+        "alienígena! No se dejen engañar, amigos. Seguimos al aire, mantengan la sintonía."
     ),
     "AgroTalk FM": (
         "Increíble. Cuidado con los neumáticos, amigos. No queremos que terminen "
-        "usando queso para labrar el campo. Escuchemos este mensaje comercial..."
+        "usando queso para labrar el campo. Seguimos informando para ustedes."
     ),
     "Trucker News Radio": (
         "Vaya lío en la carretera. Pink fog y arpas... Suena a que alguien fumó algo "
-        "raro en la gasolinera. Ojo al parche, camioneros. Y ahora, publicidad."
+        "raro en la gasolinera. Ojo al parche, camioneros, que seguimos juntos en el aire."
     ),
 }
 _DEFAULT_REACTION = (
     "Un reporte preocupante para nuestra economía agrícola. "
-    "Volvemos tras una breve pausa comercial."
+    "Sigamos atentos a lo que viene en el programa."
 )
 
 
-def transition_segment(host_name: str, prev_artist: str) -> dict[str, Any]:
-    """Host segue from the previous song into the news block."""
-    text = (
-        f"Ah, ¡qué gran tema de {prev_artist}! De vuelta al micrófono, soy {host_name}. "
-        "Vamos directo con las noticias de la hora. Nos reportan lo siguiente..."
-    )
+def transition_segment(host_name: str, prev_artist: str | None) -> dict[str, Any]:
+    """Host segue into the news block.
+
+    ``prev_artist`` is the artist of the song that just played; when it is
+    ``None`` (the opening of the show, before any music) the segue uses an
+    opening variant that does not reference a previous song.
+    """
+    if prev_artist is None:
+        text = (
+            f"Arrancamos. Soy {host_name} y abrimos con las noticias de la hora. "
+            "Nos reportan lo siguiente..."
+        )
+    else:
+        text = (
+            f"Ah, ¡qué gran tema de {prev_artist}! De vuelta al micrófono, soy {host_name}. "
+            "Vamos directo con las noticias de la hora. Nos reportan lo siguiente..."
+        )
     return {
         "type": "speech",
         "speaker": "Host",
@@ -77,7 +93,7 @@ def reaction_segment(station_name: str) -> dict[str, Any]:
 
 
 def build_segments(
-    station_name: str, host_name: str, news: dict[str, Any], prev_artist: str
+    station_name: str, host_name: str, news: dict[str, Any], prev_artist: str | None
 ) -> list[dict[str, Any]]:
     """Full news block: transition + reporter + host reaction."""
     return [

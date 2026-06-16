@@ -19,10 +19,11 @@ from pydub import AudioSegment
 from pydub.generators import Sine
 
 from app.integrations import genai_client
+from app.models.enums import GeminiVoice
 
 logger = logging.getLogger(__name__)
 
-# Prebuilt Gemini voices mapped per role.
+# Prebuilt Gemini voices mapped per role (defaults when nothing is configured).
 ROLE_VOICES: dict[str, str] = {
     "host": "Charon",
     "reporter": "Kore",
@@ -30,6 +31,17 @@ ROLE_VOICES: dict[str, str] = {
     "commercial": "Fenrir",
 }
 _DEFAULT_VOICE = "Charon"
+
+# All valid Gemini voice names; lets ``_resolve_voice`` accept either a role
+# alias or an explicit voice name (configured per station/character/commercial).
+_VALID_VOICES = frozenset(v.value for v in GeminiVoice)
+
+
+def _resolve_voice(role_or_voice: str) -> str:
+    """Resolve a role alias or an explicit Gemini voice name to a voice name."""
+    if role_or_voice in _VALID_VOICES:
+        return role_or_voice
+    return ROLE_VOICES.get(role_or_voice, _DEFAULT_VOICE)
 
 # Gemini TTS returns signed 16-bit little-endian PCM, mono, at 24 kHz.
 _PCM_SAMPLE_WIDTH = 2
@@ -72,7 +84,7 @@ def _synthesize_genai(client, text_clean: str, role: str, cached_file: str) -> A
     """Synthesize speech via the google-genai SDK, cache the MP3, return the segment."""
     from google.genai import types
 
-    voice = ROLE_VOICES.get(role, _DEFAULT_VOICE)
+    voice = _resolve_voice(role)
     config = types.GenerateContentConfig(
         response_modalities=["AUDIO"],
         speech_config=types.SpeechConfig(

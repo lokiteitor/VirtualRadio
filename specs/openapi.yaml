@@ -1498,6 +1498,44 @@ components:
           additionalProperties: true
 
     # ---- Stations -------------------------------------------------------------
+    GeminiVoice:
+      type: string
+      nullable: true
+      description: >-
+        Voz TTS de Gemini (una de las 30 voces prediseñadas). null usa la voz
+        por defecto del rol.
+      enum:
+        - Achernar
+        - Achird
+        - Algenib
+        - Algieba
+        - Alnilam
+        - Aoede
+        - Autonoe
+        - Callirrhoe
+        - Charon
+        - Despina
+        - Enceladus
+        - Erinome
+        - Fenrir
+        - Gacrux
+        - Iapetus
+        - Kore
+        - Laomedeia
+        - Leda
+        - Orus
+        - Pulcherrima
+        - Puck
+        - Rasalgethi
+        - Sadachbia
+        - Sadaltager
+        - Schedar
+        - Sulafat
+        - Umbriel
+        - Vindemiatrix
+        - Zephyr
+        - Zubenelgenubi
+
     StationInput:
       type: object
       required: [name]
@@ -1516,6 +1554,10 @@ components:
         personality:
           type: string
           nullable: true
+        host_voice:
+          $ref: '#/components/schemas/GeminiVoice'
+        reporter_voice:
+          $ref: '#/components/schemas/GeminiVoice'
         frequency:
           type: string
           maxLength: 20
@@ -1997,6 +2039,8 @@ components:
           type: number
           format: float
           default: 30
+        voice:
+          $ref: '#/components/schemas/GeminiVoice'
         campaign:
           type: string
           maxLength: 150
@@ -2062,6 +2106,8 @@ components:
           type: string
           nullable: true
           description: Estaciones que escucha (lista separada por comas)
+        voice:
+          $ref: '#/components/schemas/GeminiVoice'
 
     Character:
       allOf:

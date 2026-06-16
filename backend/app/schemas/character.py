@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from marshmallow import fields, validate
 
+from app.models.enums import GeminiVoice
 from app.schemas.common import BaseSchema
 
 
@@ -12,6 +13,7 @@ class CharacterInputSchema(BaseSchema):
     description = fields.Str(allow_none=True)
     personality = fields.Str(allow_none=True)
     station_affinity = fields.Str(allow_none=True)
+    voice = fields.Enum(GeminiVoice, by_value=True, allow_none=True, load_default=None)
 
 
 class CharacterSchema(BaseSchema):
@@ -22,6 +24,7 @@ class CharacterSchema(BaseSchema):
     description = fields.Str(allow_none=True)
     personality = fields.Str(allow_none=True)
     station_affinity = fields.Str(allow_none=True)
+    voice = fields.Enum(GeminiVoice, by_value=True, allow_none=True)
     first_appearance = fields.DateTime(dump_only=True)
     last_appearance = fields.DateTime(dump_only=True)
     created_at = fields.DateTime(dump_only=True)

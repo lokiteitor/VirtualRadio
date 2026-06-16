@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from marshmallow import fields, validate
 
+from app.models.enums import GeminiVoice
 from app.schemas.common import BaseSchema
 
 
@@ -11,6 +12,8 @@ class StationInputSchema(BaseSchema):
     host_name = fields.Str(allow_none=True, validate=validate.Length(max=120))
     description = fields.Str(allow_none=True)
     personality = fields.Str(allow_none=True)
+    host_voice = fields.Enum(GeminiVoice, by_value=True, allow_none=True, load_default=None)
+    reporter_voice = fields.Enum(GeminiVoice, by_value=True, allow_none=True, load_default=None)
     frequency = fields.Str(allow_none=True, validate=validate.Length(max=20))
     emoji = fields.Str(allow_none=True, validate=validate.Length(max=16))
     color = fields.Str(allow_none=True, validate=validate.Length(max=9))
@@ -25,6 +28,8 @@ class StationSchema(BaseSchema):
     host_name = fields.Str(allow_none=True)
     description = fields.Str(allow_none=True)
     personality = fields.Str(allow_none=True)
+    host_voice = fields.Enum(GeminiVoice, by_value=True, allow_none=True)
+    reporter_voice = fields.Enum(GeminiVoice, by_value=True, allow_none=True)
     frequency = fields.Str(allow_none=True)
     emoji = fields.Str(allow_none=True)
     color = fields.Str(allow_none=True)

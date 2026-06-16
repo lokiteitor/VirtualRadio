@@ -9,7 +9,11 @@ from typing import Any
 
 
 def build_segment(commercial: dict[str, Any]) -> dict[str, Any]:
-    """Sponsor voice reading the commercial script."""
+    """Sponsor voice reading the commercial script.
+
+    Honours a per-commercial ``voice`` (a Gemini voice name) when configured,
+    falling back to the "commercial" role voice otherwise.
+    """
     brand_name = commercial.get("brand_name") or "Patrocinador"
     script = commercial.get("script") or ""
     text = f"Patrocinador de hoy: {brand_name}. {script}".strip()
@@ -18,6 +22,7 @@ def build_segment(commercial: dict[str, Any]) -> dict[str, Any]:
         "speaker": "Commercial_Voice",
         "text": text,
         "voice_id": "commercial",
+        "voice_name": commercial.get("voice"),
         "effect": None,
         "track_id": None,
         "duration_seconds": 20,

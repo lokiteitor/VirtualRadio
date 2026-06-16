@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from "vue";
 import { AppField } from "~/shared/ui";
+import { VOICES } from "~/shared/config";
 import { toApiError } from "~/shared/api";
 import { useBrandStore } from "~/entities/brand";
 import {
@@ -26,6 +27,7 @@ function blank() {
     campaign: "",
     script: "",
     duration: 30,
+    voice: "",
   };
 }
 const form = reactive(blank());
@@ -40,6 +42,7 @@ watch(
         campaign: c.campaign ?? "",
         script: c.script,
         duration: c.duration,
+        voice: c.voice ?? "",
       });
     } else {
       Object.assign(form, blank());
@@ -57,6 +60,7 @@ function payload() {
     campaign: form.campaign || null,
     script: form.script,
     duration: Number(form.duration) || 30,
+    voice: form.voice || null,
   };
 }
 
@@ -136,6 +140,13 @@ async function submit() {
           <input v-model.number="form.duration" type="number" min="1" step="1" />
         </AppField>
       </div>
+
+      <AppField label="Voz del Anuncio" :error="errors.voice">
+        <select v-model="form.voice">
+          <option value="">Voz por defecto</option>
+          <option v-for="v in VOICES" :key="v.value" :value="v.value">{{ v.label }}</option>
+        </select>
+      </AppField>
 
       <AppField label="Guión del Locutor de Anuncios" :error="errors.script">
         <textarea v-model="form.script" rows="3" placeholder="Redacta la locución publicitaria..." required />

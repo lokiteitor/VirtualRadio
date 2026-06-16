@@ -2,9 +2,10 @@
 
 Holds the configurable script-structure parameters used by the generation
 pipeline (how many songs / news / commercials / callers an episode includes,
-and how many recent memories to inject per caller). Defaults reproduce the
-historical hardcoded behaviour (3 songs, 1 news, 1 commercial, 1 caller, 3
-memories), so existing stations are unaffected until edited.
+and how many recent memories to inject per caller). Defaults are tuned for a
+radio-like rhythm: 9 songs (3 back-to-back blocks of 3), 1 news, 2 commercials
+(recycled into each block's ad break) and 3 callers (one per block return, so
+calls are spread across the show). See ``services/agents/episode_assembly``.
 """
 from __future__ import annotations
 
@@ -42,16 +43,16 @@ class StationEpisodeSettings(UUIDPkMixin, OwnerMixin, TimestampMixin, db.Model):
         nullable=False,
     )
     song_count: Mapped[int] = mapped_column(
-        SmallInteger, nullable=False, server_default=text("3"), default=3
+        SmallInteger, nullable=False, server_default=text("9"), default=9
     )
     news_count: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, server_default=text("1"), default=1
     )
     commercial_count: Mapped[int] = mapped_column(
-        SmallInteger, nullable=False, server_default=text("1"), default=1
+        SmallInteger, nullable=False, server_default=text("2"), default=2
     )
     caller_count: Mapped[int] = mapped_column(
-        SmallInteger, nullable=False, server_default=text("1"), default=1
+        SmallInteger, nullable=False, server_default=text("3"), default=3
     )
     memories_per_caller: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, server_default=text("3"), default=3

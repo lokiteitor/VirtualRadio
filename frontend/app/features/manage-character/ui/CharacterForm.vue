@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from "vue";
 import { AppField } from "~/shared/ui";
+import { VOICES } from "~/shared/config";
 import { toApiError } from "~/shared/api";
 import { characterApi, useCharacterStore, type Character } from "~/entities/character";
 
@@ -20,6 +21,7 @@ function blank() {
     station_affinity: "",
     personality: "",
     description: "",
+    voice: "",
   };
 }
 const form = reactive(blank());
@@ -34,6 +36,7 @@ watch(
         station_affinity: c.station_affinity ?? "",
         personality: c.personality ?? "",
         description: c.description ?? "",
+        voice: c.voice ?? "",
       });
     } else {
       Object.assign(form, blank());
@@ -51,6 +54,7 @@ function payload() {
     station_affinity: form.station_affinity || null,
     personality: form.personality || null,
     description: form.description || null,
+    voice: form.voice || null,
   };
 }
 
@@ -120,6 +124,12 @@ async function submit() {
       </AppField>
       <AppField label="Personalidad / Rasgos de Habla" :error="errors.personality">
         <input v-model="form.personality" placeholder="Ej. Gruñón, habla lento, obsesionado con bujías" />
+      </AppField>
+      <AppField label="Voz del Personaje (llamadas)" :error="errors.voice">
+        <select v-model="form.voice">
+          <option value="">Voz por defecto</option>
+          <option v-for="v in VOICES" :key="v.value" :value="v.value">{{ v.label }}</option>
+        </select>
       </AppField>
       <AppField label="Descripción / Trasfondo" :error="errors.description">
         <textarea

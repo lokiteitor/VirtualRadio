@@ -53,6 +53,46 @@ class Language(str, enum.Enum):
     ENGLISH = "en"
 
 
+class GeminiVoice(str, enum.Enum):
+    """The 30 prebuilt Gemini TTS voices (value == the Gemini ``voice_name``).
+
+    Used to let a station pick its host / reporter voice, and each commercial /
+    character pick its own. The voices are multilingual (Spanish included); the
+    language comes from the spoken text, not the voice.
+    """
+
+    ACHERNAR = "Achernar"
+    ACHIRD = "Achird"
+    ALGENIB = "Algenib"
+    ALGIEBA = "Algieba"
+    ALNILAM = "Alnilam"
+    AOEDE = "Aoede"
+    AUTONOE = "Autonoe"
+    CALLIRRHOE = "Callirrhoe"
+    CHARON = "Charon"
+    DESPINA = "Despina"
+    ENCELADUS = "Enceladus"
+    ERINOME = "Erinome"
+    FENRIR = "Fenrir"
+    GACRUX = "Gacrux"
+    IAPETUS = "Iapetus"
+    KORE = "Kore"
+    LAOMEDEIA = "Laomedeia"
+    LEDA = "Leda"
+    ORUS = "Orus"
+    PULCHERRIMA = "Pulcherrima"
+    PUCK = "Puck"
+    RASALGETHI = "Rasalgethi"
+    SADACHBIA = "Sadachbia"
+    SADALTAGER = "Sadaltager"
+    SCHEDAR = "Schedar"
+    SULAFAT = "Sulafat"
+    UMBRIEL = "Umbriel"
+    VINDEMIATRIX = "Vindemiatrix"
+    ZEPHYR = "Zephyr"
+    ZUBENELGENUBI = "Zubenelgenubi"
+
+
 def pg_enum(py_enum: type[enum.Enum], name: str) -> SAEnum:
     """Build a native PostgreSQL ENUM whose values are the enum *values*."""
     return SAEnum(
@@ -69,3 +109,4 @@ NEWS_TONE_ENUM_NAME = "news_tone"
 STORY_STATUS_ENUM_NAME = "story_status"
 JOB_STATUS_ENUM_NAME = "job_status"
 LANGUAGE_ENUM_NAME = "language"
+GEMINI_VOICE_ENUM_NAME = "gemini_voice"

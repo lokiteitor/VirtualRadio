@@ -17,7 +17,7 @@ from app.models import (
     NewsItem,
     Station,
 )
-from app.models.enums import NewsCategory, NewsTone
+from app.models.enums import GeminiVoice, NewsCategory, NewsTone
 
 _STATIONS = [
     {
@@ -25,6 +25,8 @@ _STATIONS = [
         "host_name": "Clem",
         "description": "Radio de debate centrada en la cosecha, precios de fertilizantes y chismes de tractor.",
         "personality": "Rustic, proud farmer, obsessed with fertilizer prices, machinery, and weather.",
+        "host_voice": GeminiVoice.ALGIEBA,
+        "reporter_voice": GeminiVoice.KORE,
         "frequency": "95.2 FM",
         "emoji": "🌾",
         "color": "#10b981",
@@ -42,6 +44,8 @@ _STATIONS = [
         "host_name": "Diesel Dan",
         "description": "Noticias de autopistas, reportes de tráfico de larga distancia e historias del asfalto.",
         "personality": "Deep-voiced, road-weary, drinks too much coffee, speaks in trucker slang (10-4, copy that).",
+        "host_voice": GeminiVoice.CHARON,
+        "reporter_voice": GeminiVoice.IAPETUS,
         "frequency": "104.8 FM",
         "emoji": "🚛",
         "color": "#6b7280",
@@ -59,6 +63,8 @@ _STATIONS = [
         "host_name": "Audrey Vance",
         "description": "Boletines de simulación serios y objetivos sobre la economía regional e infraestructura.",
         "personality": "Crisp, professional, highly articulated news anchor, takes trivial simulation events extremely seriously.",
+        "host_voice": GeminiVoice.VINDEMIATRIX,
+        "reporter_voice": GeminiVoice.DESPINA,
         "frequency": "88.0 FM",
         "emoji": "👔",
         "color": "#3b82f6",
@@ -76,6 +82,8 @@ _STATIONS = [
         "host_name": "Richard 'Dick' Brainwave",
         "description": "Teorías locas, llamadas telefónicas extravagantes y secretos alienígenas de los cultivos.",
         "personality": "Highly energetic, paranoid, believes the government is using crop circles to communicate with Martian cows, speaks in frantic bursts.",
+        "host_voice": GeminiVoice.FENRIR,
+        "reporter_voice": GeminiVoice.PUCK,
         "frequency": "99.1 FM",
         "emoji": "👽",
         "color": "#ec4899",
@@ -100,6 +108,7 @@ _BRANDS = [
             "title": "AgroFuel Máxima Potencia",
             "script": "¿Cansado de que tu tractor eche humo negro al subir una colina de dos grados? Cámbiate a AgroFuel Max. Formulado con 40% de residuos de patata orgánica y 60% de pura potencia. AgroFuel: porque tus cultivos no se van a cosechar solos, y tu motor tampoco debería quejarse.",
             "duration": 30.0,
+            "voice": GeminiVoice.ZEPHYR,
             "campaign": "Campaña de Lanzamiento",
         },
     },
@@ -112,6 +121,7 @@ _BRANDS = [
             "title": "Se Buscan Conductores MegaHaul",
             "script": "¡Atención conductores! ¿Te gusta el café? ¿Te gusta mirar el asfalto durante 72 horas seguidas? MegaHaul Logistics está contratando. Ofrecemos sueldo competitivo, un termo de café gratis y una flota de camiones con frenos dudosos. MegaHaul: entregamos porque literalmente no nos queda otra opción.",
             "duration": 35.0,
+            "voice": GeminiVoice.SULAFAT,
             "campaign": "Reclutamiento 2026",
         },
     },
@@ -124,6 +134,7 @@ _BRANDS = [
             "title": "FarmNet Velocidad Rural",
             "script": "¿Se avecina tormenta? ¡Despídete de tu internet! Pero en los días soleados, experimenta la velocidad extrema de hasta 50 Kilobytes por segundo con FarmNet. ¡Descarga un correo electrónico en menos de diez minutos! FarmNet: es mejor que hablar con tus vacas.",
             "duration": 25.0,
+            "voice": GeminiVoice.LAOMEDEIA,
             "campaign": "Promo de Verano",
         },
     },
@@ -136,6 +147,7 @@ _BRANDS = [
             "title": "El Hype de TractorCoin",
             "script": "¿Por qué invertir en oro cuando puedes invertir en TractorCoin? La única criptomoneda minada al operar tu cosechadora a las 3 de la mañana. Mientras tus vecinos duermen, tú ganas trigo digital. TractorCoin: la agricultura de rendimiento ahora es literal. El rendimiento pasado no garantiza la supervivencia del cultivo.",
             "duration": 30.0,
+            "voice": GeminiVoice.SCHEDAR,
             "campaign": "Revolución Cripto",
         },
     },
@@ -148,6 +160,7 @@ _CHARACTERS = [
         "description": "Un agricultor local que cree que el reporte del clima es una transmisión gubernamental de control mental y que su cosechadora lo espía.",
         "personality": "Paranoico, habla rápido, acento rural",
         "station_affinity": "AgroTalk FM, WCTR Sim Edition",
+        "voice": GeminiVoice.ORUS,
         "memory": ("Le compró un tractor usado de dudosa calidad a Silas que grita cuando lo pones en reversa.", 5),
     },
     {
@@ -156,6 +169,7 @@ _CHARACTERS = [
         "description": "Un anciano gruñón que odia las autopistas, los camiones, la juventud y que está seguro de haber visto un OVNI en los campos de trigo en el 94.",
         "personality": "Gruñón, lento, voz rasposa",
         "station_affinity": "AgroTalk FM, Radio Rural 24",
+        "voice": GeminiVoice.GACRUX,
         "memory": ("Reclama que Juan le debe dos cajas de sidra por la compra del tractor.", 4),
     },
     {
@@ -164,6 +178,7 @@ _CHARACTERS = [
         "description": "Un camionero filosófico con 40 años de ruta que habla de la carretera como si fuera un ser vivo. Escribe poesía en paradas de camiones.",
         "personality": "Voz profunda, tranquilo, reflexivo, cansado",
         "station_affinity": "Trucker News Radio, Highway Talk Network",
+        "voice": GeminiVoice.SADALTAGER,
         "memory": ("Afirma haber visto una patata gigante brillante en la ruta, la cual cree que está relacionada con las teorías de Juan.", 6),
     },
     {
@@ -172,6 +187,7 @@ _CHARACTERS = [
         "description": "Se mudó de la ciudad para iniciar una cooperativa de lavanda bio-dinámica y llama a las radios a quejarse del ruido de tractores a las 5 AM.",
         "personality": "Esnob, dramática, habla rápido",
         "station_affinity": "WCTR Sim Edition, SimNation News",
+        "voice": GeminiVoice.AOEDE,
         "memory": None,
     },
 ]

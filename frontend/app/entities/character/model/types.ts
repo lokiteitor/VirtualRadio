@@ -6,6 +6,7 @@ export interface Character {
   description: string | null;
   personality: string | null;
   station_affinity: string | null;
+  voice: string | null;
   first_appearance: string;
   last_appearance: string;
   created_at: string;
@@ -18,6 +19,7 @@ export interface CharacterInput {
   description?: string | null;
   personality?: string | null;
   station_affinity?: string | null;
+  voice?: string | null;
 }
 
 export interface CharacterMemory {

@@ -48,6 +48,15 @@ export const LANGUAGES: Option[] = [
   { value: "en", label: "🇬🇧 English" },
 ];
 
+/** The 30 prebuilt Gemini TTS voices (value === the Gemini voice name). */
+export const VOICES: Option[] = [
+  "Achernar", "Achird", "Algenib", "Algieba", "Alnilam", "Aoede", "Autonoe",
+  "Callirrhoe", "Charon", "Despina", "Enceladus", "Erinome", "Fenrir", "Gacrux",
+  "Iapetus", "Kore", "Laomedeia", "Leda", "Orus", "Pulcherrima", "Puck",
+  "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Sulafat", "Umbriel",
+  "Vindemiatrix", "Zephyr", "Zubenelgenubi",
+].map((v) => ({ value: v, label: `🎙️ ${v}` }));
+
 /** Job statuses from the backend pipeline, in order, mapped to UI step index. */
 export const JOB_STATUS_STEP: Record<string, number> = {
   queued: 0,

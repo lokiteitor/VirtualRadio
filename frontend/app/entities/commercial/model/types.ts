@@ -5,6 +5,7 @@ export interface Commercial {
   title: string;
   script: string;
   duration: number;
+  voice: string | null;
   campaign: string | null;
   is_active: boolean;
   created_at: string;
@@ -16,6 +17,7 @@ export interface CommercialInput {
   title: string;
   script: string;
   duration?: number;
+  voice?: string | null;
   campaign?: string | null;
   is_active?: boolean;
 }

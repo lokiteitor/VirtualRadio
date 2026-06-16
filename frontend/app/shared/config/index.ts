@@ -4,6 +4,7 @@ export {
   NEWS_TONES,
   STORY_STATUSES,
   LANGUAGES,
+  VOICES,
   JOB_STATUS_STEP,
   JOB_STATUS_PROGRESS,
 } from "./constants";

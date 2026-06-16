@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.extensions import db
 from app.models.base import OwnerMixin, TimestampMixin, UUIDPkMixin
+from app.models.enums import GEMINI_VOICE_ENUM_NAME, GeminiVoice, pg_enum
 
 
 class Commercial(UUIDPkMixin, OwnerMixin, TimestampMixin, db.Model):
@@ -24,6 +25,10 @@ class Commercial(UUIDPkMixin, OwnerMixin, TimestampMixin, db.Model):
     script: Mapped[str] = mapped_column(Text, nullable=False)
     duration: Mapped[float] = mapped_column(
         Float, nullable=False, server_default=text("30"), default=30.0
+    )
+    # Configurable read TTS voice (null → "commercial" role default).
+    voice: Mapped[GeminiVoice | None] = mapped_column(
+        pg_enum(GeminiVoice, GEMINI_VOICE_ENUM_NAME), nullable=True, default=None
     )
     campaign: Mapped[str | None] = mapped_column(String(150), nullable=True)
     is_active: Mapped[bool] = mapped_column(

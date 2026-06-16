@@ -123,7 +123,7 @@ def ensure_fx_assets() -> None:
     fx_dir = _fx_dir()
     sweeper_file = os.path.join(fx_dir, "sweeper.mp3")
 
-    # Sweeper Sound (a futuristic synthesizer sweep + white noise blast).
+    # Sweeper Sound (a futuristic synthesizer sweep — no white-noise blast).
     if not os.path.exists(sweeper_file):
         logger.info("Generating sweeper transition FX...")
         sweep = AudioSegment.silent(duration=1500)
@@ -134,9 +134,6 @@ def ensure_fx_assets() -> None:
             note = Sine(freq).to_audio_segment(duration=15, volume=-15)
             sweep = sweep.overlay(note, position=ms)
 
-        # Add a white noise burst in the middle.
-        noise_burst = WhiteNoise().to_audio_segment(duration=500, volume=-18).fade_out(400)
-        sweep = sweep.overlay(noise_burst, position=400)
         sweep.export(sweeper_file, format="mp3")
 
 
@@ -273,21 +270,18 @@ def compile_episode(
         seg_type = segment.get("type")
 
         if seg_type == "speech":
-            speaker_type = segment.get("voice_id", "host")
+            # Prefer an explicit configured voice (station/character/commercial);
+            # fall back to the role alias ("host"/"reporter"/...).
+            voice = segment.get("voice_name") or segment.get("voice_id") or "host"
             text = segment.get("text", "")
 
             # 1. Synthesize speech.
-            vox_audio = synth_fn(text, speaker_type)
+            vox_audio = synth_fn(text, voice)
 
-            # 2. Apply telephony treatment for phone calls only. Normal speech
-            #    (host / news / commercial) plays clean — no broadcast hum.
+            # 2. Apply telephony treatment for phone calls only: a bandpass so
+            #    the call still sounds "phone-like", but no white-noise crackle.
             if segment.get("effect") == "telephony":
                 vox_audio = tts_client.apply_telephony_filter(vox_audio)
-                # Mix in a tiny bit of telephone crackle / white noise.
-                static_crackle = WhiteNoise().to_audio_segment(
-                    duration=len(vox_audio), volume=-28
-                )
-                vox_audio = vox_audio.overlay(static_crackle)
 
             # Brief padding (300ms) at the end of speech.
             vox_audio += AudioSegment.silent(duration=300)

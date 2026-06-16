@@ -1,10 +1,13 @@
 """Host agent.
 
-Produces the host-driven framing segments of the show: the intro, the song
-introductions, the music segments themselves and the outro. Intro/outro lines are
-drawn from the station's ``intro_templates`` / ``outro_templates`` (falling back
-to generic Spanish lines if a station has none). Ported from the prototype's
-``procedural_script``.
+Produces the host-driven framing segments of the show: the intro, the per-block
+music tee (a single line that hands off to a back-to-back block of songs), the
+music segments themselves and the outro. Intro/outro lines are drawn from the
+station's ``intro_templates`` / ``outro_templates`` (falling back to generic
+Spanish lines if a station has none).
+
+The host hands off to a whole music block ONCE and stays silent until the block
+ends; he never mentions the commercials that follow a block.
 """
 from __future__ import annotations
 
@@ -28,20 +31,15 @@ def _choice(items: list[str], fallback: list[str]) -> str:
     return random.choice(pool)
 
 
-def intro_segment(station, first_track: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Host intro, teasing the first song. Uses the station's intro templates.
+def intro_segment(station) -> dict[str, Any]:
+    """Host intro greeting. Uses the station's intro templates.
 
-    ``first_track`` may be ``None`` (e.g. an episode configured with 0 songs),
-    in which case the intro stays generic instead of naming a track.
+    Stays a plain greeting: the song that opens the first music block is named
+    by :func:`music_tee_segment`, not here, so the intro can be followed by talk
+    (news / callers) before any music plays.
     """
     intro_text = _choice(getattr(station, "intro_templates", None) or [], _FALLBACK_INTROS)
-    if first_track:
-        intro_text += (
-            f" Hoy escucharemos buena música, como a {first_track['artist']} con su temazo "
-            f"'{first_track['title']}'. Pero primero, ¡vamos a la música!"
-        )
-    else:
-        intro_text += " Hoy tenemos un programa cargado de sorpresas. ¡Empecemos!"
+    intro_text += " Hoy tenemos un programa cargado de sorpresas. ¡Acomódense!"
     return {
         "type": "speech",
         "speaker": "Host",
@@ -66,19 +64,29 @@ def music_segment(track: dict[str, Any], track_index: int) -> dict[str, Any]:
     }
 
 
-def song_intro_segment(track: dict[str, Any], variant: str = "relax") -> dict[str, Any]:
-    """Host introducing the next song (a couple of tone variants)."""
-    if variant == "last":
+def music_tee_segment(
+    first_track: dict[str, Any] | None, *, opening: bool
+) -> dict[str, Any]:
+    """Single host line handing off to a back-to-back block of songs.
+
+    Introduces the whole block ONCE (the host stays silent until the block
+    ends). Names at most the first song of the block and never mentions the
+    commercials that follow it. ``opening`` selects the first-block wording vs.
+    the "we're back" wording used for later blocks.
+    """
+    if first_track:
+        lead = f"{first_track['artist']} con '{first_track['title']}'"
+    else:
+        lead = "buena música"
+    if opening:
         text = (
-            "Interesante llamada. Es hora de la última canción del bloque de hoy. "
-            f"Con ustedes, {track['artist']} y '{track['title']}'. Regresamos para la "
-            "despedida."
+            f"¡Y arrancamos con la música! Para abrir, {lead}. Quédense ahí, que vienen "
+            "varios temas seguidos. ¡Suban el volumen!"
         )
     else:
         text = (
-            "De regreso. Y ahora es momento de relajarnos un poco con buena música en el "
-            f"dial. Aquí tienen a {track['artist']} interpretando '{track['title']}'. "
-            "¡Disfrútenla!"
+            f"De vuelta al aire. Seguimos con más buena música; ahora suena {lead}, y van "
+            "varios temas sin parar. ¡No se vayan!"
         )
     return {
         "type": "speech",

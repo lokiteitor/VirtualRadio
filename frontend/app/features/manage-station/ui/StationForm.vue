@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from "vue";
 import { AppField } from "~/shared/ui";
+import { VOICES } from "~/shared/config";
 import { toApiError } from "~/shared/api";
 import { arrayToLines, linesToArray } from "~/shared/lib";
 import { stationApi, useStationStore, type Station } from "~/entities/station";
@@ -20,6 +21,8 @@ function blank() {
     host_name: "",
     description: "",
     personality: "",
+    host_voice: "",
+    reporter_voice: "",
     frequency: "",
     emoji: "📻",
     color: "#d97706",
@@ -38,6 +41,8 @@ watch(
         host_name: s.host_name ?? "",
         description: s.description ?? "",
         personality: s.personality ?? "",
+        host_voice: s.host_voice ?? "",
+        reporter_voice: s.reporter_voice ?? "",
         frequency: s.frequency ?? "",
         emoji: s.emoji ?? "📻",
         color: s.color ?? "#d97706",
@@ -59,6 +64,8 @@ function payload() {
     host_name: form.host_name || null,
     description: form.description || null,
     personality: form.personality || null,
+    host_voice: form.host_voice || null,
+    reporter_voice: form.reporter_voice || null,
     frequency: form.frequency || null,
     emoji: form.emoji || null,
     color: form.color || null,
@@ -132,6 +139,21 @@ async function submit() {
         <input v-model="form.host_name" placeholder="Ej. El Primo Paco" />
       </AppField>
 
+      <div class="dual-row">
+        <AppField label="Voz del Locutor" :error="errors.host_voice">
+          <select v-model="form.host_voice">
+            <option value="">Voz por defecto</option>
+            <option v-for="v in VOICES" :key="v.value" :value="v.value">{{ v.label }}</option>
+          </select>
+        </AppField>
+        <AppField label="Voz del Reportero" :error="errors.reporter_voice">
+          <select v-model="form.reporter_voice">
+            <option value="">Voz por defecto</option>
+            <option v-for="v in VOICES" :key="v.value" :value="v.value">{{ v.label }}</option>
+          </select>
+        </AppField>
+      </div>
+
       <div class="triple-row">
         <AppField label="Frecuencia" :error="errors.frequency">
           <input v-model="form.frequency" placeholder="98.5 FM" />
@@ -173,6 +195,11 @@ async function submit() {
 .triple-row {
   display: grid;
   grid-template-columns: 1fr 80px 80px;
+  gap: 10px;
+}
+.dual-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 .color-input {

@@ -7,9 +7,11 @@
    :class:`StationEpisodeSettings`).
 2. Tries the LLM (:func:`app.integrations.llm_client.complete_json`) with a
    count-aware prompt for a full script.
-3. On ``None`` / invalid output, builds the script procedurally via a
-   deterministic layout that interleaves songs with the news / commercial /
-   caller blocks.
+3. On ``None`` / invalid output, builds the script procedurally with a radio-like
+   block layout: the host hands off to a block of **at least 3 back-to-back
+   songs**, the commercials for that break play on their own (the host never
+   mentions them), then the host returns. The caller phone-ins are spread across
+   the whole show, not clustered.
 
 Either way it returns the pinned dict::
 
@@ -39,7 +41,11 @@ from app.services.agents import (
 )
 
 # Valid segment shape keys (ensures LLM segments are normalized to the contract).
-_SEGMENT_KEYS = ("type", "speaker", "text", "voice_id", "effect", "track_id", "duration_seconds")
+# ``voice_name`` is an optional explicit Gemini voice that overrides the role
+# voice (set per commercial/character/station; see ``_assign_voices``).
+_SEGMENT_KEYS = (
+    "type", "speaker", "text", "voice_id", "voice_name", "effect", "track_id", "duration_seconds",
+)
 
 _LLM_SYSTEM_INSTRUCTION = (
     "You are a professional script writer for a satirical radio generator. You write "
@@ -51,15 +57,25 @@ _LANGUAGE_NAMES = {"es": "Spanish", "en": "English"}
 
 
 # --------------------------------------------------------------------------- #
-# Layout: where each block goes (shared by the procedural + LLM descriptions)
+# Layout: a radio-like block plan (music blocks + ad breaks + talk slots)
 # --------------------------------------------------------------------------- #
-def _talk_queue(news_count: int, commercial_count: int, caller_count: int) -> list[tuple[str, int]]:
-    """Round-robin interleave of the talk blocks so types alternate, not clump."""
-    counters = {"news": 0, "commercial": 0, "caller": 0}
-    remaining = {"news": news_count, "commercial": commercial_count, "caller": caller_count}
+# At least this many songs play back-to-back per music block (when available).
+_SONGS_PER_BLOCK = 3
+
+
+def _talk_queue(news_count: int, caller_count: int) -> list[tuple[str, int]]:
+    """Round-robin interleave of news + callers so the two alternate, not clump.
+
+    Commercials are NOT part of the talk stream: they play in their own break
+    after each music block and the host never introduces them. Each type keeps
+    its internal order (caller ``idx`` 0, 1, 2, ...), which ``summarize_caller``
+    relies on for caller/index alignment.
+    """
+    counters = {"news": 0, "caller": 0}
+    remaining = {"news": news_count, "caller": caller_count}
     order: list[tuple[str, int]] = []
     while any(v > 0 for v in remaining.values()):
-        for kind in ("news", "commercial", "caller"):
+        for kind in ("news", "caller"):
             if remaining[kind] > 0:
                 order.append((kind, counters[kind]))
                 counters[kind] += 1
@@ -67,34 +83,82 @@ def _talk_queue(news_count: int, commercial_count: int, caller_count: int) -> li
     return order
 
 
-def _layout(
-    song_count: int, news_count: int, commercial_count: int, caller_count: int
-) -> list[tuple[str, int]]:
-    """Ordered ``(kind, idx)`` blocks for an episode of arbitrary counts.
+def _even_chunks(total: int, groups: int, *, heavy_last: bool = False) -> list[int]:
+    """Split ``total`` into ``groups`` non-negative sizes differing by at most 1.
 
-    ``intro`` first, ``outro`` last; the body starts with a song (the intro
-    teases song 0) and alternates song / talk-block, draining whichever queue
-    still has items. Coherent for any counts, including zeros.
+    With ``heavy_last`` the larger (remainder) groups are placed at the end
+    instead of the start. Returns ``[]`` when ``groups <= 0``.
     """
-    layout: list[tuple[str, int]] = [("intro", 0)]
-    songs = [("song", i) for i in range(max(0, song_count))]
-    talk = _talk_queue(news_count, commercial_count, caller_count)
+    if groups <= 0:
+        return []
+    base, extra = divmod(max(0, total), groups)
+    if heavy_last:
+        return [base + (1 if i >= groups - extra else 0) for i in range(groups)]
+    return [base + (1 if i < extra else 0) for i in range(groups)]
 
-    si = ti = 0
-    take_song = True
-    while si < len(songs) or ti < len(talk):
-        if take_song and si < len(songs):
-            layout.append(songs[si]); si += 1
-        elif not take_song and ti < len(talk):
-            layout.append(talk[ti]); ti += 1
-        elif si < len(songs):
-            layout.append(songs[si]); si += 1
-        else:
-            layout.append(talk[ti]); ti += 1
-        take_song = not take_song
 
-    layout.append(("outro", 0))
-    return layout
+def _split_contiguous(items: list, groups: int, *, heavy_last: bool = False) -> list[list]:
+    """Slice ``items`` into ``groups`` contiguous sublists (order preserved)."""
+    out: list[list] = []
+    pos = 0
+    for size in _even_chunks(len(items), groups, heavy_last=heavy_last):
+        out.append(items[pos:pos + size])
+        pos += size
+    return out
+
+
+def _distribute_commercials(commercial_count: int, blocks: int) -> list[list[int]]:
+    """Assign commercial indices to one ad break after each of ``blocks`` blocks.
+
+    Each break gets at least one ad by recycling the available commercials when
+    there are fewer commercials than blocks (per "comercial tras cada bloque").
+    ``commercial_count == 0`` is respected as "no commercials" (empty breaks).
+    """
+    if blocks <= 0:
+        return []
+    if commercial_count <= 0:
+        return [[] for _ in range(blocks)]
+    # Recycle so every break has >= 1 ad; when there are more ads than breaks,
+    # use each ad once and spread them across the breaks.
+    seq = [i % commercial_count for i in range(max(commercial_count, blocks))]
+    return _split_contiguous(seq, blocks)
+
+
+def _plan_blocks(
+    song_count: int, news_count: int, commercial_count: int, caller_count: int
+) -> dict[str, Any]:
+    """Structural plan for the episode, driven by the song count.
+
+    Returns ``{"blocks", "breaks", "talk"}`` where ``blocks`` is a list of music
+    blocks (each a list of GLOBAL song indices, all >= 3 when ``song_count >= 3``),
+    ``breaks`` is the per-block list of commercial indices, and ``talk`` is the
+    list of talk-item groups for the host-talk slots. With ``B`` music blocks
+    there are ``B + 1`` talk slots (intro side, between blocks, outro side).
+
+    ``song_count == 0`` collapses to a talk-only show: one talk stream and a
+    single consolidated ad break (rendered just before the outro).
+    """
+    talk = _talk_queue(news_count, caller_count)
+
+    if song_count <= 0:
+        return {
+            "blocks": [],
+            "breaks": [list(range(commercial_count))] if commercial_count > 0 else [],
+            "talk": [talk],
+        }
+
+    blocks_count = max(1, song_count // _SONGS_PER_BLOCK)
+    blocks: list[list[int]] = []
+    pos = 0
+    for size in _even_chunks(song_count, blocks_count):
+        blocks.append(list(range(pos, pos + size)))
+        pos += size
+
+    return {
+        "blocks": blocks,
+        "breaks": _distribute_commercials(commercial_count, blocks_count),
+        "talk": _split_contiguous(talk, blocks_count + 1),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -144,10 +208,20 @@ def _build_prompt(
         3. Caller interactions ({caller_count}). Create a funny phone dialogue for each caller
            (they should reference their memories where given); the host responds:
 {caller_block}
-        4. Play {song_count} songs (Music segments). Introduce each song:
+        4. Play {song_count} songs (Music segments):
 {songs_block}
 
-        Interleave the songs with the talk blocks so the show flows like real radio.
+        Structure the show like real radio, following these rules strictly:
+        - Group the songs into blocks of AT LEAST 3 consecutive Music segments. Within a block the
+          songs play back-to-back: the Host introduces the block ONCE (before the first song) and
+          does NOT speak again until the block ends.
+        - After each music block, place that break's Commercial segments (read by "Commercial_Voice").
+          The Host must NEVER mention, introduce, tease, comment on, or thank the commercials — he
+          hands off to music and the ads simply run; after the ads the Host returns with talk.
+        - Spread the caller phone-ins across the WHOLE show: never two callers back-to-back, and not
+          all clustered at the start or end.
+        - Open with a short Host greeting and close with a short Host goodbye.
+
         Generate the output strictly as a JSON list of segments. Do not include markdown code block formatting like ```json ... ```, just the raw JSON.
         Each segment must have:
         - "type": "speech", "music", or "fx"
@@ -155,7 +229,7 @@ def _build_prompt(
         - "text": The spoken text or script, or song title for music
         - "voice_id": "host", "caller", "reporter", "commercial", or null
         - "effect": "telephony" (for callers), "ducking" (for speech during music), or null
-        - "track_id": The song index (0..{max(song_count - 1, 0)}) if type is music, otherwise null.
+        - "track_id": The song's index (0..{max(song_count - 1, 0)}) in the song list above if type is music, otherwise null.
         - "duration_seconds": estimate duration (speech ~ 150 words per minute).
         """
 
@@ -182,35 +256,56 @@ def _procedural_script(
     commercials: list[dict[str, Any]],
     characters: list[dict[str, Any] | None],
 ) -> list[dict[str, Any]]:
-    """Build a satirical script procedurally for arbitrary counts."""
+    """Build a satirical, radio-like script procedurally for arbitrary counts.
+
+    Structure (see :func:`_plan_blocks`): intro greeting, then for each music
+    block a single host tee, the block's songs back-to-back, the block's ad
+    break (no host), and the host returning with talk. Callers are spread across
+    the talk slots; the host never mentions the commercials.
+    """
     station_name = getattr(station, "name", "WCTR Sim Edition")
-    layout = _layout(len(tracks), len(news_items), len(commercials), len(characters))
+    plan = _plan_blocks(len(tracks), len(news_items), len(commercials), len(characters))
+    blocks = plan["blocks"]
+    breaks = plan["breaks"]
+    talk_slots = plan["talk"]
 
-    segments: list[dict[str, Any]] = []
-    prev_artist = tracks[0]["artist"] if tracks else "la música"
+    segments: list[dict[str, Any]] = [host_agent.intro_segment(station)]
+    prev_artist: str | None = None  # None until the first song plays (opening variant)
 
-    for kind, idx in layout:
-        if kind == "intro":
-            segments.append(host_agent.intro_segment(station, tracks[0] if tracks else None))
-        elif kind == "song":
-            track = tracks[idx]
-            if idx > 0:  # song 0 is teased by the intro
-                variant = "last" if idx == len(tracks) - 1 else "relax"
-                segments.append(host_agent.song_intro_segment(track, variant=variant))
-            segments.append(host_agent.music_segment(track, idx))
-            prev_artist = track["artist"]
-        elif kind == "news":
-            segments.extend(
-                news_agent.build_segments(station_name, host_name, news_items[idx], prev_artist)
-            )
-        elif kind == "commercial":
-            segments.extend(commercial_agent.build_segments(commercials[idx]))
-        elif kind == "caller":
-            character = characters[idx] if idx < len(characters) else None
-            segments.extend(character_agent.build_segments(host_name, character))
-        elif kind == "outro":
-            segments.append(host_agent.outro_segment(station))
+    def emit_talk(items: list[tuple[str, int]]) -> None:
+        # Reads the enclosing ``prev_artist`` at call time so news transitions
+        # reference the song that just played (or the opening variant when None).
+        for kind, idx in items:
+            if kind == "news":
+                segments.extend(
+                    news_agent.build_segments(station_name, host_name, news_items[idx], prev_artist)
+                )
+            elif kind == "caller":
+                character = characters[idx] if idx < len(characters) else None
+                segments.extend(character_agent.build_segments(host_name, character))
 
+    # Talk-only show (no songs configured): all talk, then a single ad break.
+    if not blocks:
+        emit_talk(talk_slots[0])
+        for ci in (breaks[0] if breaks else []):
+            segments.extend(commercial_agent.build_segments(commercials[ci]))
+        segments.append(host_agent.outro_segment(station))
+        return segments
+
+    emit_talk(talk_slots[0])
+    for k, block in enumerate(blocks):
+        # Single host tee for the whole block; songs then play back-to-back.
+        segments.append(host_agent.music_tee_segment(tracks[block[0]], opening=(k == 0)))
+        for gi in block:
+            segments.append(host_agent.music_segment(tracks[gi], gi))
+            prev_artist = tracks[gi]["artist"]
+        # Ad break (host stays silent — never introduces the commercials).
+        for ci in breaks[k]:
+            segments.extend(commercial_agent.build_segments(commercials[ci]))
+        # Host returns with the next talk slot (news/callers).
+        emit_talk(talk_slots[k + 1])
+
+    segments.append(host_agent.outro_segment(station))
     return segments
 
 
@@ -244,6 +339,47 @@ def _normalize_llm_script(raw: Any) -> list[dict[str, Any]] | None:
             segment["duration_seconds"] = 10
         normalized.append(segment)
     return normalized or None
+
+
+# --------------------------------------------------------------------------- #
+# Voice assignment (configurable per station host/reporter and per character)
+# --------------------------------------------------------------------------- #
+def _assign_voices(
+    script: list[dict[str, Any]],
+    host_voice: str | None,
+    reporter_voice: str | None,
+    characters: list[dict[str, Any] | None],
+) -> None:
+    """Fill each speech segment's ``voice_name`` from the configured voices.
+
+    Applies to both the procedural and LLM scripts. Host/reporter voices are
+    per-station (assigned by role); caller voices are per-character (assigned by
+    caller order, which mirrors :func:`character_agent.summarize_caller`).
+    Commercial voices are set per commercial by the commercial agent, so a
+    segment that already carries a ``voice_name`` is left untouched. Nothing is
+    set when the resolved voice is ``None`` (the role default then applies).
+    """
+    caller_voices = [c.get("voice") if c else None for c in characters]
+    caller_i = 0
+    for segment in script:
+        is_caller = segment.get("speaker") == "Caller"
+        if not segment.get("voice_name"):
+            if is_caller:
+                cv = caller_voices[caller_i] if caller_i < len(caller_voices) else None
+                if cv:
+                    segment["voice_name"] = cv
+            elif segment.get("voice_id") == "host" and host_voice:
+                segment["voice_name"] = host_voice
+            elif segment.get("voice_id") == "reporter" and reporter_voice:
+                segment["voice_name"] = reporter_voice
+        if is_caller:
+            caller_i += 1
+
+
+def _voice_value(station, attr: str) -> str | None:
+    """Read a station voice attribute as a plain Gemini voice name (or None)."""
+    voice = getattr(station, attr, None)
+    return voice.value if hasattr(voice, "value") else voice
 
 
 # --------------------------------------------------------------------------- #
@@ -292,6 +428,14 @@ def build_episode(owner_id: uuid.UUID, station, settings) -> dict[str, Any]:
         script_json = _procedural_script(
             station, host_name, tracks, news_items, commercials, characters
         )
+
+    # 3b. Apply the configurable voices (station host/reporter + per-character).
+    _assign_voices(
+        script_json,
+        _voice_value(station, "host_voice"),
+        _voice_value(station, "reporter_voice"),
+        characters,
+    )
 
     # 4. Derive a caller-memory summary for each real character (in caller order).
     real_characters = [c for c in characters if c and c.get("id") is not None]

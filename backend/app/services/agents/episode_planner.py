@@ -51,6 +51,7 @@ DEFAULT_COMMERCIAL: dict[str, Any] = {
     "title": "AgroFuel Max",
     "script": "¡Usa AgroFuel y tu tractor volará!",
     "duration": 30.0,
+    "voice": None,
 }
 
 # Lists used to pad the plural pickers up to the requested count.
@@ -105,6 +106,7 @@ def _commercial_to_dict(row) -> dict[str, Any]:
         "title": row.title,
         "script": row.script,
         "duration": row.duration,
+        "voice": row.voice.value if row.voice else None,
     }
 
 
@@ -129,6 +131,7 @@ def _character_to_dict(row, owner_id: uuid.UUID, memories_per_caller: int) -> di
         "personality": row.personality or "",
         "station_affinity": row.station_affinity or "",
         "memories": memories,
+        "voice": row.voice.value if row.voice else None,
     }
 
 
