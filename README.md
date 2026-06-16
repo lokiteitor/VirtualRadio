@@ -1,69 +1,121 @@
-# VirtualRadio - Canvas de Planeación Técnica
+# VirtualRadio
 
-VirtualRadio es un generador automatizado de estaciones de radio satíricas (estilo WCTR de GTA) para videojuegos de simulación como *Farming Simulator 25*, *Euro Truck Simulator 2* y similares.
+**VirtualRadio** es un generador automatizado de estaciones de radio satíricas (estilo
+WCTR de GTA) para videojuegos de simulación como *Farming Simulator 25*, *Euro Truck
+Simulator 2* y similares. Un usuario define su propio "universo" — estaciones, noticias,
+marcas y comerciales, personajes con memoria narrativa y una biblioteca musical — y la
+aplicación genera episodios completos: un guión estructurado y un MP3 mezclado con voces
+sintéticas sobre música, listo para reproducir.
 
-Este repositorio contiene el prototipo técnico completo (MVP) con una interfaz web en Nuxt y un servidor de procesamiento en Flask.
+Este repositorio es un **monorepo** con dos aplicaciones desplegables más el contrato y la
+documentación de diseño:
+
+| Carpeta | Qué es |
+| --- | --- |
+| [`backend/`](backend/) | API REST (Flask 3) + pipeline de generación asíncrono (Celery). Ver [`backend/README.md`](backend/README.md). |
+| [`frontend/`](frontend/) | Panel de control web SPA (Nuxt 4 + Bun, Feature-Sliced Design). Ver [`frontend/README.md`](frontend/README.md). |
+| [`specs/openapi.yaml`](specs/openapi.yaml) | Contrato **OpenAPI 3.1** (API v1.0.0) que implementa el backend. |
+| [`docs/`](docs/) | Documentación de arquitectura (C4, esquema de BD, RBAC, planes) — fuente de verdad del diseño. |
 
 ---
 
-## 🛠️ Stack Tecnológico Implementado
+## 🛠️ Stack tecnológico
 
-*   **Frontend**: Nuxt 3/4 (Vue.js) en modo Single-Page Application (SPA).
-*   **Backend API**: Flask (Python 3.12).
-*   **Base de Datos**: SQLite (como alternativa a Postgresql para facilitar pruebas de desarrollo local con cero configuración).
-*   **Procesamiento Asíncrono**: Cola de procesamiento concurrente basada en hilos (`threading.Thread`) en Flask.
-*   **Audio Engine**: FFmpeg + Pydub.
-*   **Voice Synthesis (TTS)**: gTTS (Google Text-To-Speech) con acentos regionales dinámicos (España para locutor, Colombia para oyentes, México para comerciales, etc.).
-*   **Generación de Guiones**: Pipeline de Agentes (Episode Planner, News, Commercial, Character, Host, Assembly) con soporte híbrido para LLMs reales (Gemini / OpenRouter) y un motor de respaldo procedural autónomo.
+**Backend** — Python 3.12 · Flask 3.1 · **PostgreSQL 18** (SQLAlchemy 2.0 +
+Flask-Migrate/Alembic, IDs `uuidv7()` nativos) · **Redis 8 + Celery 5** (pipeline
+asíncrono + Beat) · Flask-JWT-Extended (JWT, argon2) · Marshmallow (validación) ·
+**FFmpeg + pydub** (motor de audio) · **google-genai** (Gemini LLM + TTS, vía Vertex AI
+con ADC o API key) con **fallback procedural**.
+
+**Frontend** — **Bun** · **Nuxt 4** (Vue 3, Composition API, SPA `ssr: false`) · Pinia ·
+SASS · TypeScript (typecheck con `vue-tsc`) · Playwright (E2E). Arquitectura
+**Feature-Sliced Design** (`pages → widgets → features → entities → shared`).
 
 ---
 
-## 🚀 Cómo Iniciar el Prototipo
+## 🚀 Inicio rápido (Docker, recomendado)
 
-El proyecto incluye un script automatizado `start.sh` que se encarga de crear el entorno virtual de Python, instalar dependencias de backend y frontend, y arrancar ambos servidores.
+El `docker-compose.yml` vive dentro de [`backend/`](backend/) y construye también el
+frontend, por lo que **debe ejecutarse desde esa carpeta**:
 
-1.  **Asegurar que FFmpeg está instalado** (ya está preinstalado en este entorno).
-2.  **Dar permisos e iniciar**:
-    ```bash
-    chmod +x start.sh
-    ./start.sh
-    ```
-3.  **Acceder a la aplicación**:
-    *   **Panel de Control (Nuxt)**: [http://localhost:3000](http://localhost:3000)
-    *   **API del Backend (Flask)**: [http://localhost:5000](http://localhost:5000)
-
-*(Opcional)* Si deseas usar generación de IA real en lugar del motor de plantillas humorísticas procedurales, exporta tu clave de API antes de iniciar:
 ```bash
-export GEMINI_API_KEY="tu_clave_api"
-# o
-export OPENROUTER_API_KEY="tu_clave_api"
+cd backend
+cp .env.example .env          # ajusta secretos / claves de IA si las tienes (opcional)
+docker compose up --build
+```
+
+Esto levanta toda la pila: `db` (Postgres 18) · `redis` (8) · `api` (Gunicorn) ·
+`worker` (Celery + Beat) · `frontend` (Nuxt). El servicio `api` aplica las migraciones y
+siembra el catálogo de roles al arrancar (`flask db upgrade && flask seed-roles`).
+
+| Servicio | URL |
+| --- | --- |
+| Panel de control (Nuxt) | http://localhost:3000 |
+| API del backend (base `/api/v1`) | http://localhost:5000/api/v1 |
+| PostgreSQL / Redis | `localhost:5432` / `localhost:6379` |
+
+> **La IA es opcional.** Sin `GEMINI_API_KEY` / `OPENROUTER_API_KEY` (ni Vertex AI), el
+> sistema sigue generando episodios válidos mediante un motor procedural y voz sintética;
+> si la biblioteca musical del usuario está vacía, sintetiza pistas chiptune de prueba.
+> Para usar IA real, configura las claves en `backend/.env` (o Vertex AI con `GEMINI_USE_VERTEX`
+> + ADC). Detalles en [`backend/README.md`](backend/README.md).
+
+Para ejecutar cada aplicación por separado (entorno local sin Docker, pruebas, etc.),
+consulta el README de cada subproyecto.
+
+---
+
+## 🎙️ Cómo funciona
+
+1. El usuario inicia sesión en el panel y define su **universo**: estaciones (con locutor
+   y personalidad), noticias, marcas y comerciales, personajes con memoria narrativa y una
+   biblioteca musical. Al registrarse se siembra un universo por defecto.
+2. Dispara la generación de un episodio: `POST /episodes/generate {station_id}` encola un
+   `GenerationJob` y responde **202**.
+3. El worker de Celery ejecuta el **pipeline de agentes** (Episode Planner → News →
+   Commercial → Character → Host → Assembly), avanzando el estado del job
+   `planning → synthesizing → mixing → completed`. Cada agente intenta el LLM y cae a
+   contenido procedural si no hay respuesta.
+4. El frontend hace *polling* en `GET /jobs/{id}` y muestra el progreso.
+5. El motor de audio (FFmpeg + pydub) compila el MP3 con efectos de radio (ducking,
+   filtro telefónico de 300 Hz–3 kHz para llamadas, sweepers/estática). El episodio se
+   sirve en `GET /episodes/{id}/audio` con soporte de `Range` (206) y se reproduce en el
+   navegador con una línea de tiempo tipo guión.
+
+Toda la información pertenece al usuario autenticado (`owner_id` derivado del JWT); el
+acceso a recursos ajenos devuelve **404** (se oculta su existencia).
+
+---
+
+## 📂 Estructura del proyecto
+
+```
+VirtualRadio/
+├── backend/        API Flask 3 + Celery (capas: routes → controllers → services/agents → repositories → models)
+│   ├── app/        Paquete de la aplicación (factory, blueprints autodescubiertos bajo /api/v1)
+│   ├── migrations/ Migraciones Alembic
+│   ├── tests/      Smoke tests E2E (scripts Python, requieren Postgres + Redis)
+│   └── docker-compose.yml   Pila completa (db, redis, api, worker, frontend)
+├── frontend/       SPA Nuxt 4 (Feature-Sliced Design)
+│   └── app/        pages · widgets · features · entities · shared · layouts · middleware · plugins
+├── docs/           Documentación de arquitectura
+│   ├── backend/    arquitectura, base-de-datos, rbac, plan de implementación
+│   └── frontend/   arquitectura, plan de implementación
+├── specs/
+│   └── openapi.yaml   Contrato de la API (OpenAPI 3.1)
+├── CLAUDE.md       Guía para Claude Code
+└── README.md
 ```
 
 ---
 
-## 📦 Características del MVP Incluidas
+## 📚 Documentación
 
-*   **Music Library**: Escaneo de metadatos, cálculo de hashes MD5 contra duplicados y sincronización automática.
-*   **Generación de Audio Sintético**: Si tu biblioteca musical está vacía, el motor sintetizará 3 temas chiptune (*synth_pastoral*, *synth_highway*, *synth_ambient*) para habilitar pruebas inmediatas.
-*   **Pipeline de Agentes**: Generación estructurada de diálogos humorísticos de locución, reporteros de noticias, patrocinadores comerciales y llamadas telefónicas.
-*   **Efectos de Radio (DSP)**:
-    *   *Ducking*: Reducción automática del volumen de la música de fondo durante diálogos.
-    *   *Telephony Filter*: Filtro de llamada telefónica (pasabanda de 300Hz-3kHz) para oyentes.
-    *   *Sweepers & Radio Hum*: Estática de fondo y sweeps sintetizados para unir música y voz.
-*   **Memoria Narrativa**: SQLite guarda las llamadas e interacciones de los personajes (*Juan*, *Silas*, etc.) para generar continuidad narrativa en futuros episodios.
-*   **Reproductor de Audio y Guiones**: Escucha los episodios directamente en la web y sigue el timeline con burbujas de diálogo estilo screenplay.
-
----
-
-## 📂 Estructura del Proyecto
-
-*   [`start.sh`](file:///home/ddelgado/git/lab/VirtualRadio/start.sh): Lanzador integrado de servidores.
-*   [`backend/`](file:///home/ddelgado/git/lab/VirtualRadio/backend):
-    *   [`app.py`](file:///home/ddelgado/git/lab/VirtualRadio/backend/app.py): Servidor Flask, enrutamientos REST y cola de trabajos.
-    *   [`database.py`](file:///home/ddelgado/git/lab/VirtualRadio/backend/database.py): Esquemas SQLite y siembra de datos.
-    *   [`generator.py`](file:///home/ddelgado/git/lab/VirtualRadio/backend/generator.py): Motor de agentes de guiones y fallback procedural.
-    *   [`audio_engine.py`](file:///home/ddelgado/git/lab/VirtualRadio/backend/audio_engine.py): Sintetizador de voz, generador de pistas y mezclador final.
-*   [`frontend/`](file:///home/ddelgado/git/lab/VirtualRadio/frontend):
-    *   [`app.vue`](file:///home/ddelgado/git/lab/VirtualRadio/frontend/app.vue): Interfaz completa de Single-Page Application en Nuxt.
-
-Para ver los detalles técnicos y decisiones arquitectónicas, consulta la [Documentación Completa del Prototipo](file:///home/ddelgado/.gemini/antigravity-cli/brain/42bde156-69dc-487a-a11d-5d29b6445f54/prototype_documentation.md).
+- [`backend/README.md`](backend/README.md) — stack, comandos, capas, pipeline de
+  generación, RBAC y variables de entorno del backend.
+- [`frontend/README.md`](frontend/README.md) — arquitectura FSD, autenticación, configuración
+  y pruebas del frontend.
+- [`docs/`](docs/) — decisiones de arquitectura, esquema de base de datos y RBAC.
+- [`specs/openapi.yaml`](specs/openapi.yaml) — contrato HTTP completo (Health, Auth,
+  Stations, Episodes, Jobs, Music, News, Brands, Commercials, Characters, Story Events,
+  Universe).
