@@ -14,6 +14,7 @@ export interface Episode {
   id: string;
   owner_id: string;
   station_id: string;
+  episode_number: number;
   title: string;
   duration: number;
   script_json: ScriptSegment[];

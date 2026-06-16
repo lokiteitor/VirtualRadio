@@ -6,6 +6,7 @@ from flask import Blueprint, request
 from app.auth.permissions import check_permission
 from app.common.responses import created, no_content, success
 from app.controllers import station as ctrl
+from app.controllers import station_episode_settings as settings_ctrl
 
 bp = Blueprint("stations", __name__)
 
@@ -46,3 +47,17 @@ def update_station(station_id):
 def delete_station(station_id):
     ctrl.delete_station(station_id)
     return no_content()
+
+
+@bp.get("/stations/<station_id>/episode-settings")
+@check_permission("station", "read_settings")
+def get_episode_settings(station_id):
+    return success(settings_ctrl.get_settings(station_id))
+
+
+@bp.put("/stations/<station_id>/episode-settings")
+@check_permission("station", "update_settings")
+def update_episode_settings(station_id):
+    return success(
+        settings_ctrl.update_settings(station_id, request.get_json(silent=True))
+    )

@@ -6,9 +6,6 @@ degrades to a quiet placeholder so episode compilation keeps working without any
 AI provider configured.
 
 The filesystem cache (``MEDIA_ROOT/vox/vox_<hash>.mp3``) is the source of truth.
-A Redis index (``tts:{hash}`` → path) is maintained best-effort; every Redis
-interaction is wrapped in try/except so a missing/unreachable Redis can never
-break synthesis.
 """
 from __future__ import annotations
 
@@ -60,41 +57,6 @@ def _vox_dir() -> str:
 
 def _cache_key(text_clean: str, role: str) -> str:
     return hashlib.md5(f"{text_clean}_{role}".encode("utf-8")).hexdigest()
-
-
-def _redis_client():
-    try:
-        import redis  # local import keeps module import-safe
-
-        url = _cfg("REDIS_URL", "REDIS_URL", "redis://redis:6379/0")
-        return redis.from_url(url)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Redis unavailable for TTS index: %s", exc)
-        return None
-
-
-def _redis_get(file_hash: str) -> str | None:
-    client = _redis_client()
-    if client is None:
-        return None
-    try:
-        value = client.get(f"tts:{file_hash}")
-        if value is None:
-            return None
-        return value.decode("utf-8") if isinstance(value, bytes) else str(value)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Redis get failed for TTS index: %s", exc)
-        return None
-
-
-def _redis_set(file_hash: str, path: str) -> None:
-    client = _redis_client()
-    if client is None:
-        return
-    try:
-        client.set(f"tts:{file_hash}", path)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Redis set failed for TTS index: %s", exc)
 
 
 def _fallback_clip(text_clean: str) -> AudioSegment:
@@ -159,19 +121,10 @@ def get_tts_audio(text: str, role: str) -> AudioSegment:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to load cached TTS clip %s: %s", cached_file, exc)
 
-    # Best-effort: resolve a path the Redis index may know about.
-    indexed = _redis_get(file_hash)
-    if indexed and indexed != cached_file and os.path.exists(indexed):
-        try:
-            return AudioSegment.from_file(indexed)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to load indexed TTS clip %s: %s", indexed, exc)
-
     client = genai_client.get_client()
     if client is not None:
         try:
             segment = _synthesize_genai(client, text_clean, role, cached_file)
-            _redis_set(file_hash, cached_file)
             return segment
         except Exception as exc:  # noqa: BLE001
             logger.warning(

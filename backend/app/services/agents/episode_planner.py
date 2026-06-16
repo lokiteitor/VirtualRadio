@@ -1,20 +1,19 @@
 """Episode planner agent.
 
 Selects the owner-scoped content elements that the rest of the agents turn into
-a script: up to 3 random ``MusicTrack`` rows, one active ``NewsItem``, one active
-``Commercial`` (plus its ``CommercialBrand``) and one ``Character`` (plus up to 3
-of its most recent ``CharacterMemory`` rows).
+a script. The counts are driven by the station's :class:`StationEpisodeSettings`
+(songs, news items, commercials, callers and memories-per-caller); each picker
+returns a *list* honouring its count, padding with procedural ``DEFAULT_*``
+fallbacks so generation degrades gracefully when a user has little/no content.
 
 This module runs inside a Celery worker (no request context), so it never relies
 on ``flask_jwt_extended.current_user`` / ``scoped_query``: ``owner_id`` is passed
 explicitly and every query is filtered on ``Model.owner_id == owner_id`` against
 ``db.session`` directly. The module is import-safe (no DB access at import time).
-
-The procedural defaults mirror the prototype so generation degrades gracefully
-when a user has no music / news / commercials / characters.
 """
 from __future__ import annotations
 
+import random
 import uuid
 from typing import Any
 
@@ -54,46 +53,39 @@ DEFAULT_COMMERCIAL: dict[str, Any] = {
     "duration": 30.0,
 }
 
+# Lists used to pad the plural pickers up to the requested count.
+DEFAULT_NEWS_ITEMS: list[dict[str, Any]] = [DEFAULT_NEWS]
+DEFAULT_COMMERCIALS: list[dict[str, Any]] = [DEFAULT_COMMERCIAL]
+
 
 def _owned(model, owner_id: uuid.UUID):
     """Return a base query for *model* filtered to the given owner."""
     return db.session.query(model).filter(model.owner_id == owner_id)
 
 
-def pick_tracks(owner_id: uuid.UUID, limit: int = 3) -> list[dict[str, Any]]:
-    """Pick up to ``limit`` random owned music tracks (procedural fallback if none)."""
-    rows = (
-        _owned(MusicTrack, owner_id)
-        .order_by(func.random())
-        .limit(limit)
-        .all()
-    )
-    if not rows:
-        return [dict(t) for t in DEFAULT_TRACKS[:limit]]
-
-    tracks = [
-        {
-            "id": row.id,
-            "title": row.title or "Tema sin título",
-            "artist": row.artist or "Artista Desconocido",
-            "duration": row.duration,
-        }
-        for row in rows
-    ]
-    return tracks
+def _pad(rows: list[dict[str, Any]], defaults: list[dict[str, Any]], count: int) -> list[dict[str, Any]]:
+    """Pad ``rows`` with cycled copies of ``defaults`` up to ``count`` items."""
+    out = list(rows)
+    i = 0
+    while len(out) < count and defaults:
+        out.append(dict(defaults[i % len(defaults)]))
+        i += 1
+    return out[:count]
 
 
-def pick_news(owner_id: uuid.UUID) -> dict[str, Any]:
-    """Pick one random active owned news item (procedural fallback if none)."""
-    row = (
-        _owned(NewsItem, owner_id)
-        .filter(NewsItem.is_active.is_(True))
-        .order_by(func.random())
-        .first()
-    )
-    if row is None:
-        return dict(DEFAULT_NEWS)
+# --------------------------------------------------------------------------- #
+# Mappers (DB row -> plain dict)
+# --------------------------------------------------------------------------- #
+def _track_to_dict(row) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "title": row.title or "Tema sin título",
+        "artist": row.artist or "Artista Desconocido",
+        "duration": row.duration,
+    }
 
+
+def _news_to_dict(row) -> dict[str, Any]:
     return {
         "id": row.id,
         "headline": row.headline,
@@ -104,19 +96,7 @@ def pick_news(owner_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
-def pick_commercial(owner_id: uuid.UUID) -> dict[str, Any]:
-    """Pick one random active owned commercial + its active brand (fallback if none)."""
-    row = (
-        _owned(Commercial, owner_id)
-        .join(CommercialBrand, Commercial.brand_id == CommercialBrand.id)
-        .filter(Commercial.is_active.is_(True))
-        .filter(CommercialBrand.is_active.is_(True))
-        .order_by(func.random())
-        .first()
-    )
-    if row is None:
-        return dict(DEFAULT_COMMERCIAL)
-
+def _commercial_to_dict(row) -> dict[str, Any]:
     brand = db.session.get(CommercialBrand, row.brand_id)
     return {
         "id": row.id,
@@ -128,66 +108,136 @@ def pick_commercial(owner_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
-def pick_character(owner_id: uuid.UUID, station_name: str | None = None) -> dict[str, Any] | None:
-    """Pick one owned character (preferring station affinity) + up to 3 recent memories.
-
-    Returns ``None`` when the owner has no characters at all, mirroring the
-    prototype which then falls back to a default caller in the script.
-    """
-    characters = _owned(Character, owner_id).all()
-    if not characters:
-        return None
-
-    # Prefer characters whose affinity mentions this station (or the WCTR wildcard).
-    chosen = None
-    if station_name:
-        matching = [
-            c
-            for c in characters
-            if c.station_affinity
-            and (station_name in c.station_affinity or "WCTR" in c.station_affinity)
+def _character_to_dict(row, owner_id: uuid.UUID, memories_per_caller: int) -> dict[str, Any]:
+    memories: list[str] = []
+    if memories_per_caller > 0:
+        memories = [
+            m.memory
+            for m in (
+                _owned(CharacterMemory, owner_id)
+                .filter(CharacterMemory.character_id == row.id)
+                .order_by(CharacterMemory.created_at.desc())
+                .limit(memories_per_caller)
+                .all()
+            )
         ]
-        if matching:
-            chosen = _random_choice(matching)
-    if chosen is None:
-        chosen = _random_choice(characters)
-
-    memories = (
-        _owned(CharacterMemory, owner_id)
-        .filter(CharacterMemory.character_id == chosen.id)
-        .order_by(CharacterMemory.created_at.desc())
-        .limit(3)
-        .all()
-    )
-
     return {
-        "id": chosen.id,
-        "name": chosen.name,
-        "role": chosen.role or "",
-        "description": chosen.description or "",
-        "personality": chosen.personality or "",
-        "station_affinity": chosen.station_affinity or "",
-        "memories": [m.memory for m in memories],
+        "id": row.id,
+        "name": row.name,
+        "role": row.role or "",
+        "description": row.description or "",
+        "personality": row.personality or "",
+        "station_affinity": row.station_affinity or "",
+        "memories": memories,
     }
 
 
-def _random_choice(items: list):
-    """Deterministic-friendly random choice (uses ``random`` lazily)."""
-    import random
+# --------------------------------------------------------------------------- #
+# Plural pickers (each returns a list honouring ``count``)
+# --------------------------------------------------------------------------- #
+def pick_tracks(owner_id: uuid.UUID, count: int) -> list[dict[str, Any]]:
+    """Pick ``count`` random owned tracks (padded with procedural defaults)."""
+    if count <= 0:
+        return []
+    rows = _owned(MusicTrack, owner_id).order_by(func.random()).limit(count).all()
+    return _pad([_track_to_dict(r) for r in rows], DEFAULT_TRACKS, count)
 
-    return random.choice(items)
+
+def pick_news_items(owner_id: uuid.UUID, count: int) -> list[dict[str, Any]]:
+    """Pick ``count`` random active owned news items (padded with defaults)."""
+    if count <= 0:
+        return []
+    rows = (
+        _owned(NewsItem, owner_id)
+        .filter(NewsItem.is_active.is_(True))
+        .order_by(func.random())
+        .limit(count)
+        .all()
+    )
+    return _pad([_news_to_dict(r) for r in rows], DEFAULT_NEWS_ITEMS, count)
 
 
-def plan_episode(owner_id: uuid.UUID, station) -> dict[str, Any]:
+def pick_commercials(owner_id: uuid.UUID, count: int) -> list[dict[str, Any]]:
+    """Pick ``count`` random active owned commercials + brands (padded)."""
+    if count <= 0:
+        return []
+    rows = (
+        _owned(Commercial, owner_id)
+        .join(CommercialBrand, Commercial.brand_id == CommercialBrand.id)
+        .filter(Commercial.is_active.is_(True))
+        .filter(CommercialBrand.is_active.is_(True))
+        .order_by(func.random())
+        .limit(count)
+        .all()
+    )
+    return _pad([_commercial_to_dict(r) for r in rows], DEFAULT_COMMERCIALS, count)
+
+
+def _order_by_affinity(characters: list, station_name: str | None) -> list:
+    """Shuffle characters, preferring those whose affinity matches the station."""
+    pool = list(characters)
+    random.shuffle(pool)
+    if not station_name:
+        return pool
+    matching = [
+        c
+        for c in pool
+        if c.station_affinity
+        and (station_name in c.station_affinity or "WCTR" in c.station_affinity)
+    ]
+    rest = [c for c in pool if c not in matching]
+    return matching + rest
+
+
+def pick_characters(
+    owner_id: uuid.UUID,
+    count: int,
+    memories_per_caller: int,
+    station_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Pick up to ``count`` distinct owned characters (affinity-first).
+
+    Returns a list of length ``count``: real character dicts first, padded with
+    ``None`` slots (rendered as a default caller by the character agent), which
+    mirrors the prototype's no-character fallback.
+    """
+    if count <= 0:
+        return []
+    characters = _owned(Character, owner_id).all()
+    ordered = _order_by_affinity(characters, station_name) if characters else []
+    chosen = ordered[:count]
+    result: list[dict[str, Any] | None] = [
+        _character_to_dict(c, owner_id, memories_per_caller) for c in chosen
+    ]
+    while len(result) < count:
+        result.append(None)  # default caller slot
+    return result
+
+
+def language_code(settings) -> str:
+    """Return the configured script language as a plain ``"es"`` / ``"en"`` code.
+
+    Tolerates a ``Language`` enum, a plain string, or a missing attribute
+    (defaults to Spanish), so it is safe in both the request and worker paths.
+    """
+    lang = getattr(settings, "language", None)
+    code = lang.value if hasattr(lang, "value") else lang
+    return code if code in ("es", "en") else "es"
+
+
+def plan_episode(owner_id: uuid.UUID, station, settings) -> dict[str, Any]:
     """Gather all content elements for an episode of ``station``.
 
-    Returns a dict with keys ``tracks``, ``news``, ``commercial`` and
-    ``character`` (the latter may be ``None``).
+    ``settings`` is a :class:`StationEpisodeSettings`-like object exposing the
+    integer counts. Returns lists for ``tracks``/``news``/``commercials`` and a
+    ``characters`` list (length ``caller_count``; may contain ``None`` slots).
     """
     station_name = getattr(station, "name", None)
     return {
-        "tracks": pick_tracks(owner_id, limit=3),
-        "news": pick_news(owner_id),
-        "commercial": pick_commercial(owner_id),
-        "character": pick_character(owner_id, station_name),
+        "tracks": pick_tracks(owner_id, settings.song_count),
+        "news": pick_news_items(owner_id, settings.news_count),
+        "commercials": pick_commercials(owner_id, settings.commercial_count),
+        "characters": pick_characters(
+            owner_id, settings.caller_count, settings.memories_per_caller, station_name
+        ),
     }

@@ -83,14 +83,34 @@ def generate_episode_task(job_id: str):
 
         ensure_owner_music(job.owner_id)
 
-        # 3. Assemble the episode (agents + LLM/procedural script).
-        result = episode_assembly.build_episode(job.owner_id, station)
+        # Per-station script settings (created with defaults on first use).
+        from app.services.episode_settings import get_or_create_for_station
 
-        # 4. Persist the episode.
+        settings = get_or_create_for_station(job.owner_id, station.id)
+
+        # 3. Assemble the episode (agents + LLM/procedural script).
+        result = episode_assembly.build_episode(job.owner_id, station, settings)
+
+        # 4. Persist the episode with a deterministic per-station number. Lock the
+        #    station row so concurrent generations of the SAME station serialize
+        #    (other stations stay parallel); the unique constraint is the backstop.
+        db.session.query(Station).filter(
+            Station.id == station.id, Station.owner_id == job.owner_id
+        ).with_for_update().first()
+        last_number = (
+            db.session.query(func.max(Episode.episode_number))
+            .filter(
+                Episode.owner_id == job.owner_id,
+                Episode.station_id == station.id,
+            )
+            .scalar()
+        )
+        episode_number = (last_number or 0) + 1
         episode = Episode(
             owner_id=job.owner_id,
             station_id=station.id,
-            title=result["title"],
+            episode_number=episode_number,
+            title=f"{station.name} - Episodio {episode_number}",
             script_json=result["script_json"],
         )
         db.session.add(episode)
@@ -116,25 +136,26 @@ def generate_episode_task(job_id: str):
         episode.duration = duration
         db.session.commit()
 
-        # 7. Persist caller memory + bump the character's last_appearance.
-        if result["character_id"]:
+        # 7. Persist caller memory + bump last_appearance for each caller.
+        for caller in result["callers"]:
             db.session.add(
                 CharacterMemory(
                     owner_id=job.owner_id,
-                    character_id=result["character_id"],
+                    character_id=caller["character_id"],
                     episode_id=episode.id,
-                    memory=result["caller_summary"] or "...",
+                    memory=caller["caller_summary"] or "...",
                     importance=5,
                 )
             )
             character = (
                 db.session.query(Character)
-                .filter(Character.id == result["character_id"])
+                .filter(Character.id == caller["character_id"])
                 .filter(Character.owner_id == job.owner_id)
                 .first()
             )
             if character is not None:
                 character.last_appearance = func.now()
+        if result["callers"]:
             db.session.commit()
 
         # 8. Completed.

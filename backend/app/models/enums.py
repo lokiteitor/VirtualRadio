@@ -46,6 +46,13 @@ class SegmentType(str, enum.Enum):
     FX = "fx"
 
 
+class Language(str, enum.Enum):
+    """Script language for a station's generated episodes."""
+
+    SPANISH = "es"
+    ENGLISH = "en"
+
+
 def pg_enum(py_enum: type[enum.Enum], name: str) -> SAEnum:
     """Build a native PostgreSQL ENUM whose values are the enum *values*."""
     return SAEnum(
@@ -61,3 +68,4 @@ NEWS_CATEGORY_ENUM_NAME = "news_category"
 NEWS_TONE_ENUM_NAME = "news_tone"
 STORY_STATUS_ENUM_NAME = "story_status"
 JOB_STATUS_ENUM_NAME = "job_status"
+LANGUAGE_ENUM_NAME = "language"

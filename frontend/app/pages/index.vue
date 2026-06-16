@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { AppPageHeader, AppEmptyState } from "~/shared/ui";
+import { AppPageHeader, AppEmptyState, AppModal } from "~/shared/ui";
 import { NAV_ITEMS } from "~/shared/config";
 import { StationCard, useStationStore, type Station } from "~/entities/station";
 import { StationForm } from "~/features/manage-station";
+import { EpisodeSettingsForm } from "~/features/manage-episode-settings";
 import { useGenerateEpisode } from "~/features/generate-episode";
 import { GenerationPipelineModal } from "~/widgets/generation-pipeline-modal";
 import { UniverseSummary } from "~/widgets/universe-summary";
 
 const store = useStationStore();
 const editing = ref<Station | null>(null);
+const settingsFor = ref<Station | null>(null);
 const { job, isOpen, start, close } = useGenerateEpisode();
 
 onMounted(() => store.fetchAll());
@@ -20,6 +22,9 @@ function onGenerate(s: Station) {
 function onEdit(s: Station) {
   editing.value = s;
   if (import.meta.client) window.scrollTo({ top: 0, behavior: "smooth" });
+}
+function onSettings(s: Station) {
+  settingsFor.value = s;
 }
 async function onRemove(s: Station) {
   if (confirm(`¿Eliminar "${s.name}"? Se borrarán sus episodios y jobs asociados.`)) {
@@ -50,6 +55,7 @@ function viewEpisode() {
             :generating="isOpen"
             @generate="onGenerate"
             @edit="onEdit"
+            @settings="onSettings"
             @remove="onRemove"
           />
         </div>
@@ -72,6 +78,19 @@ function viewEpisode() {
       @close="close"
       @view-episode="viewEpisode"
     />
+
+    <AppModal
+      v-if="settingsFor"
+      :title="`⚙️ Guion · ${settingsFor.name}`"
+      @close="settingsFor = null"
+    >
+      <EpisodeSettingsForm
+        :station-id="settingsFor.id"
+        :station-name="settingsFor.name"
+        @saved="settingsFor = null"
+        @cancel="settingsFor = null"
+      />
+    </AppModal>
   </div>
 </template>
 

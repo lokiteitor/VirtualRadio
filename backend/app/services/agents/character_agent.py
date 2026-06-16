@@ -114,11 +114,15 @@ def build_segments(
     ]
 
 
-def summarize_caller(station_name: str, script_json: list[dict[str, Any]]) -> str | None:
-    """Derive a one-line memory from the caller's first line in the script.
+def summarize_caller(
+    station_name: str, script_json: list[dict[str, Any]], index: int = 0
+) -> str | None:
+    """Derive a one-line memory from the ``index``-th caller line in the script.
 
     Mirrors the prototype: ``Llamó a <station> para hablar sobre: <line>...``.
-    Returns ``None`` when the script has no caller lines.
+    With multiple callers, caller lines appear in caller order, so ``index``
+    selects the matching caller (falling back to the first). Returns ``None``
+    when the script has no caller lines.
     """
     caller_lines = [
         seg.get("text", "")
@@ -127,4 +131,5 @@ def summarize_caller(station_name: str, script_json: list[dict[str, Any]]) -> st
     ]
     if not caller_lines:
         return None
-    return f"Llamó a {station_name} para hablar sobre: {caller_lines[0][:100]}..."
+    line = caller_lines[index] if 0 <= index < len(caller_lines) else caller_lines[0]
+    return f"Llamó a {station_name} para hablar sobre: {line[:100]}..."

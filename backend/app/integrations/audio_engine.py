@@ -6,7 +6,7 @@ instead of a static directory. The layout under ``MEDIA_ROOT`` is::
 
     music/<owner_id>/   uploaded + synthesized chiptune tracks (per user)
     vox/                cached TTS speech clips
-    fx/                 generated radio FX (static hum, sweeper)
+    fx/                 generated radio FX (sweeper)
     episodes/           exported episode MP3s
 
 The module is import-safe: it performs no directory creation or network/DB
@@ -118,19 +118,12 @@ def ensure_dirs(owner_id=None) -> None:
 # FX asset generation
 # --------------------------------------------------------------------------- #
 def ensure_fx_assets() -> None:
-    """Generate ``fx/static_hum.mp3`` and ``fx/sweeper.mp3`` if missing."""
+    """Generate ``fx/sweeper.mp3`` if missing."""
     ensure_dirs()
     fx_dir = _fx_dir()
-    static_file = os.path.join(fx_dir, "static_hum.mp3")
     sweeper_file = os.path.join(fx_dir, "sweeper.mp3")
 
-    # 1. Radio Static Hum (5 seconds of quiet white noise).
-    if not os.path.exists(static_file):
-        logger.info("Generating radio static hum FX...")
-        noise = WhiteNoise().to_audio_segment(duration=5000, volume=-28)
-        noise.export(static_file, format="mp3")
-
-    # 2. Sweeper Sound (a futuristic synthesizer sweep + white noise blast).
+    # Sweeper Sound (a futuristic synthesizer sweep + white noise blast).
     if not os.path.exists(sweeper_file):
         logger.info("Generating sweeper transition FX...")
         sweep = AudioSegment.silent(duration=1500)
@@ -243,9 +236,9 @@ def compile_episode(
 
     Walks the episode's ``script_json`` segments (speech / music / fx), renders
     speech via ``synth_fn``, applies a telephony filter + crackle for phone
-    calls (or overlays a subtle static hum otherwise), slices and fades music
-    with a sweeper transition, and appends sweeper / static FX. The final mix
-    is normalized and exported to ``MEDIA_ROOT/episodes/<episode.id>.mp3``.
+    calls (normal speech plays clean), slices and fades music with a sweeper
+    transition, and appends sweeper FX. The final mix is normalized and
+    exported to ``MEDIA_ROOT/episodes/<episode.id>.mp3``.
 
     Args:
         episode: the ``Episode`` model (uses ``.id`` and ``.script_json``).
@@ -267,7 +260,6 @@ def compile_episode(
     script = episode.script_json or []
 
     # Load helper FX.
-    static_hum = AudioSegment.from_file(os.path.join(_fx_dir(), "static_hum.mp3"))
     sweeper = AudioSegment.from_file(os.path.join(_fx_dir(), "sweeper.mp3"))
 
     # Resolve music segment track_id by index into the user's ordered tracks.
@@ -287,7 +279,8 @@ def compile_episode(
             # 1. Synthesize speech.
             vox_audio = synth_fn(text, speaker_type)
 
-            # 2. Apply telephony treatment for phone calls, else broadcast hum.
+            # 2. Apply telephony treatment for phone calls only. Normal speech
+            #    (host / news / commercial) plays clean — no broadcast hum.
             if segment.get("effect") == "telephony":
                 vox_audio = tts_client.apply_telephony_filter(vox_audio)
                 # Mix in a tiny bit of telephone crackle / white noise.
@@ -295,13 +288,6 @@ def compile_episode(
                     duration=len(vox_audio), volume=-28
                 )
                 vox_audio = vox_audio.overlay(static_crackle)
-            else:
-                # Normal speech: overlay subtle radio broadcast hum (-26dB).
-                hum_segment = static_hum
-                while len(hum_segment) < len(vox_audio):
-                    hum_segment += static_hum
-                hum_segment = hum_segment[: len(vox_audio)].fade_out(100)
-                vox_audio = vox_audio.overlay(hum_segment)
 
             # Brief padding (300ms) at the end of speech.
             vox_audio += AudioSegment.silent(duration=300)
@@ -320,10 +306,7 @@ def compile_episode(
             if file_path and os.path.exists(file_path):
                 song = AudioSegment.from_file(file_path)
 
-                # Prototype slice: only play 40 seconds to render episodes fast.
-                slice_dur_ms = 40000
-                if len(song) > slice_dur_ms:
-                    song = song[:slice_dur_ms]
+                # Songs always play complete; just shape the edges.
                 song = song.fade_in(1500).fade_out(2000)
 
                 # Radio-style transition: overlay a sweeper at the start.
@@ -338,8 +321,6 @@ def compile_episode(
             fx_name = segment.get("fx_type")
             if fx_name == "sweeper":
                 final_mix += sweeper
-            elif fx_name == "static":
-                final_mix += static_hum
             else:
                 final_mix += AudioSegment.silent(duration=1000)
 

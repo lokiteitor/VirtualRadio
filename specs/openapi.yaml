@@ -309,6 +309,50 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /stations/{id}/episode-settings:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    get:
+      tags: [Stations]
+      summary: Obtener ajustes del guion de la estación
+      description: 'Permiso: `station:read_settings:own`. Crea los ajustes con valores por defecto si aún no existen.'
+      operationId: getEpisodeSettings
+      responses:
+        '200':
+          description: Ajustes del guion de la estación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EpisodeSettingsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Stations]
+      summary: Actualizar ajustes del guion de la estación
+      description: 'Permiso: `station:update_settings:own`. Acepta cualquier subconjunto de los campos.'
+      operationId: updateEpisodeSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EpisodeSettingsInput'
+      responses:
+        '200':
+          description: Ajustes actualizados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EpisodeSettingsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
   # ---------------------------------------------------------------------------
   # Episodes
   # ---------------------------------------------------------------------------
@@ -1530,6 +1574,69 @@ components:
         meta:
           $ref: '#/components/schemas/Meta'
 
+    EpisodeSettingsInput:
+      type: object
+      description: Parámetros del guion del episodio, por estación. Todos opcionales en PUT.
+      properties:
+        song_count:
+          type: integer
+          minimum: 0
+          maximum: 10
+          default: 3
+          description: Número de canciones por episodio (siempre suenan completas).
+        news_count:
+          type: integer
+          minimum: 0
+          maximum: 5
+          default: 1
+        commercial_count:
+          type: integer
+          minimum: 0
+          maximum: 5
+          default: 1
+        caller_count:
+          type: integer
+          minimum: 0
+          maximum: 5
+          default: 1
+        memories_per_caller:
+          type: integer
+          minimum: 0
+          maximum: 10
+          default: 3
+        language:
+          type: string
+          enum: [es, en]
+          default: es
+          description: Idioma del guion generado (español o inglés).
+
+    EpisodeSettings:
+      allOf:
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+            owner_id:
+              type: string
+              format: uuid
+              readOnly: true
+            station_id:
+              type: string
+              format: uuid
+              readOnly: true
+        - $ref: '#/components/schemas/EpisodeSettingsInput'
+        - $ref: '#/components/schemas/Timestamps'
+
+    EpisodeSettingsResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/EpisodeSettings'
+        meta:
+          $ref: '#/components/schemas/Meta'
+
     # ---- Episodes -------------------------------------------------------------
     ScriptSegment:
       type: object
@@ -1586,6 +1693,10 @@ components:
         station_id:
           type: string
           format: uuid
+        episode_number:
+          type: integer
+          readOnly: true
+          description: Número de episodio autoincremental, determinista por estación.
         title:
           type: string
           maxLength: 200

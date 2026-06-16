@@ -18,6 +18,7 @@ USER_PERMISSIONS: frozenset[str] = frozenset(
         # Stations
         "station:create:own", "station:read:own", "station:update:own",
         "station:delete:own", "station:suggest:own",
+        "station:read_settings:own", "station:update_settings:own",
         # Episodes & jobs
         "episode:read:own", "episode:generate:own", "episode:delete:own",
         "job:read:own",

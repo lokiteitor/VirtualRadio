@@ -26,6 +26,37 @@ function stationName(ep: Episode): string {
   return stationNames.value[ep.station_id] ?? "Emisora";
 }
 
+interface StationGroup {
+  id: string;
+  name: string;
+  emoji: string;
+  frequency: string;
+  episodes: Episode[];
+}
+
+// Library grouped by station; episodes sorted newest-first by their number.
+const groups = computed<StationGroup[]>(() => {
+  const byStation = new Map<string, Episode[]>();
+  for (const ep of store.items) {
+    const list = byStation.get(ep.station_id) ?? [];
+    list.push(ep);
+    byStation.set(ep.station_id, list);
+  }
+  const result: StationGroup[] = [];
+  for (const [stationId, eps] of byStation) {
+    const s = stationStore.items.find((st) => st.id === stationId);
+    result.push({
+      id: stationId,
+      name: s?.name ?? "Emisora",
+      emoji: s?.emoji ?? "📻",
+      frequency: s?.frequency ?? "",
+      episodes: [...eps].sort((a, b) => b.episode_number - a.episode_number),
+    });
+  }
+  result.sort((a, b) => a.name.localeCompare(b.name));
+  return result;
+});
+
 function onSelect(ep: Episode) {
   autoplay.value = false;
   selected.value = ep;
@@ -66,16 +97,23 @@ watch(
 
     <div v-else class="episodes-container">
       <div class="episodes-list">
-        <EpisodeRow
-          v-for="ep in store.items"
-          :key="ep.id"
-          :episode="ep"
-          :station-name="stationName(ep)"
-          :active="selected?.id === ep.id"
-          @select="onSelect"
-          @play="onPlay"
-          @remove="onRemove"
-        />
+        <section v-for="g in groups" :key="g.id" class="station-group">
+          <header class="group-header">
+            <span class="group-emoji">{{ g.emoji }}</span>
+            <span class="group-name">{{ g.name }}</span>
+            <span v-if="g.frequency" class="group-freq">{{ g.frequency }}</span>
+            <span class="group-count">{{ g.episodes.length }}</span>
+          </header>
+          <EpisodeRow
+            v-for="ep in g.episodes"
+            :key="ep.id"
+            :episode="ep"
+            :active="selected?.id === ep.id"
+            @select="onSelect"
+            @play="onPlay"
+            @remove="onRemove"
+          />
+        </section>
       </div>
 
       <EpisodePlayer
@@ -109,7 +147,40 @@ watch(
   max-height: calc(100vh - 200px);
   display: flex;
   flex-direction: column;
+  gap: 18px;
+}
+.station-group {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+}
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+.group-emoji {
+  font-size: 18px;
+}
+.group-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.group-freq {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.group-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+  background: var(--primary-glow);
+  padding: 2px 8px;
+  border-radius: 999px;
 }
 .episode-viewer.empty {
   background-color: var(--bg-surface);

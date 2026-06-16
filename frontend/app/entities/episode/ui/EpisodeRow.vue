@@ -12,6 +12,9 @@ const emit = defineEmits<{
 
 <template>
   <div class="episode-row" :class="{ active }" @click="emit('select', episode)">
+    <div class="ep-number" :title="`Episodio ${episode.episode_number}`">
+      {{ episode.episode_number }}
+    </div>
     <div class="ep-info">
       <span v-if="stationName" class="ep-badge">{{ stationName }}</span>
       <h4>{{ episode.title }}</h4>
@@ -40,6 +43,7 @@ const emit = defineEmits<{
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 }
 .episode-row:hover {
   background-color: var(--bg-input);
@@ -49,11 +53,25 @@ const emit = defineEmits<{
   border-color: var(--primary);
   background: linear-gradient(90deg, var(--bg-input), #1e253c);
 }
+.ep-number {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary);
+  background: var(--primary-glow);
+  border-radius: var(--radius-md);
+}
 .ep-info {
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+  flex: 1;
 }
 .ep-badge {
   font-size: 9px;

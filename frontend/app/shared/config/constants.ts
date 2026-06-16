@@ -43,6 +43,11 @@ export const STORY_STATUSES: Option[] = [
   { value: "resolved", label: "✅ Resuelto" },
 ];
 
+export const LANGUAGES: Option[] = [
+  { value: "es", label: "🇪🇸 Español" },
+  { value: "en", label: "🇬🇧 English" },
+];
+
 /** Job statuses from the backend pipeline, in order, mapped to UI step index. */
 export const JOB_STATUS_STEP: Record<string, number> = {
   queued: 0,

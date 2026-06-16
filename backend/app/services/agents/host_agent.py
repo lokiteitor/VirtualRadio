@@ -28,13 +28,20 @@ def _choice(items: list[str], fallback: list[str]) -> str:
     return random.choice(pool)
 
 
-def intro_segment(station, first_track: dict[str, Any]) -> dict[str, Any]:
-    """Host intro, teasing the first song. Uses the station's intro templates."""
+def intro_segment(station, first_track: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Host intro, teasing the first song. Uses the station's intro templates.
+
+    ``first_track`` may be ``None`` (e.g. an episode configured with 0 songs),
+    in which case the intro stays generic instead of naming a track.
+    """
     intro_text = _choice(getattr(station, "intro_templates", None) or [], _FALLBACK_INTROS)
-    intro_text += (
-        f" Hoy escucharemos buena música, como a {first_track['artist']} con su temazo "
-        f"'{first_track['title']}'. Pero primero, ¡vamos a la música!"
-    )
+    if first_track:
+        intro_text += (
+            f" Hoy escucharemos buena música, como a {first_track['artist']} con su temazo "
+            f"'{first_track['title']}'. Pero primero, ¡vamos a la música!"
+        )
+    else:
+        intro_text += " Hoy tenemos un programa cargado de sorpresas. ¡Empecemos!"
     return {
         "type": "speech",
         "speaker": "Host",
