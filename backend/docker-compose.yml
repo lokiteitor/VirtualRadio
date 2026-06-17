@@ -39,7 +39,7 @@ services:
       MEDIA_ROOT: /data/media
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/adc.json
     volumes:
-      - media:/data/media
+      - ./media:/data/media
       # ADC for Vertex AI (no-op if ADC_PATH is unset → mounts /dev/null).
       - ${ADC_PATH:-/dev/null}:/secrets/adc.json:ro
     ports:
@@ -65,7 +65,7 @@ services:
       MEDIA_ROOT: /data/media
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/adc.json
     volumes:
-      - media:/data/media
+      - ./media:/data/media
       - ${ADC_PATH:-/dev/null}:/secrets/adc.json:ro
     depends_on:
       db:
@@ -92,4 +92,3 @@ services:
 
 volumes:
   pgdata:
-  media:
