@@ -220,6 +220,9 @@ def _build_prompt(
           hands off to music and the ads simply run; after the ads the Host returns with talk.
         - Spread the caller phone-ins across the WHOLE show: never two callers back-to-back, and not
           all clustered at the start or end.
+        - "Reporter" segments MUST NOT mention or reference the station name in their "text"; the
+          reporter only narrates the news story itself (this keeps the reporter audio reusable across
+          stations). The station identity is carried by the Host's surrounding talk, not the reporter.
         - Open with a short Host greeting and close with a short Host goodbye.
 
         Generate the output strictly as a JSON list of segments. Do not include markdown code block formatting like ```json ... ```, just the raw JSON.
@@ -403,6 +406,10 @@ def build_episode(owner_id: uuid.UUID, station, settings) -> dict[str, Any]:
     # Ordered selected MusicTrack ids (only real DB rows; fallback tracks have id=None).
     track_ids: list[uuid.UUID] = [t["id"] for t in tracks if t.get("id") is not None]
 
+    # Real NewsItem ids used this episode (the worker records them so each news is
+    # read once per station; procedural fallbacks, if any, have id=None).
+    news_ids: list[uuid.UUID] = [n["id"] for n in news_items if n.get("id") is not None]
+
     # Base title; the generation worker overrides it with the deterministic
     # per-station number ("<station> - Episodio N").
     title = station_name
@@ -452,4 +459,5 @@ def build_episode(owner_id: uuid.UUID, station, settings) -> dict[str, Any]:
         "script_json": script_json,
         "callers": callers,
         "track_ids": track_ids,
+        "news_ids": news_ids,
     }

@@ -1,2 +1,2 @@
 export { useGenerateEpisode } from "./model/useGenerateEpisode";
-export type { Job, JobStatus } from "./model/types";
+export type { Job, JobStatus, Trace, TraceKind } from "./model/types";

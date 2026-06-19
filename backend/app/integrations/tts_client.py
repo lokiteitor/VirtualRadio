@@ -13,6 +13,7 @@ import base64
 import hashlib
 import logging
 import os
+import time
 from typing import Any
 
 from pydub import AudioSegment
@@ -20,6 +21,7 @@ from pydub.generators import Sine
 
 from app.integrations import genai_client
 from app.models.enums import GeminiVoice
+from app.services import usage_collector
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +87,7 @@ def _synthesize_genai(client, text_clean: str, role: str, cached_file: str) -> A
     from google.genai import types
 
     voice = _resolve_voice(role)
+    model = genai_client.tts_model()
     config = types.GenerateContentConfig(
         response_modalities=["AUDIO"],
         speech_config=types.SpeechConfig(
@@ -93,10 +96,23 @@ def _synthesize_genai(client, text_clean: str, role: str, cached_file: str) -> A
             )
         ),
     )
+    started = time.monotonic()
     resp = client.models.generate_content(
-        model=genai_client.tts_model(),
+        model=model,
         contents=text_clean,
         config=config,
+    )
+    usage = getattr(resp, "usage_metadata", None)
+    tokens_in = getattr(usage, "prompt_token_count", 0) or 0
+    tokens_out = getattr(usage, "candidates_token_count", 0) or 0
+    usage_collector.record(
+        "tts",
+        "gemini",
+        model=model,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        total_tokens=getattr(usage, "total_token_count", 0) or (tokens_in + tokens_out),
+        latency_ms=int((time.monotonic() - started) * 1000),
     )
     pcm = resp.candidates[0].content.parts[0].inline_data.data
     if isinstance(pcm, str):  # some SDK paths return base64 text
@@ -126,10 +142,13 @@ def get_tts_audio(text: str, role: str) -> AudioSegment:
     file_hash = _cache_key(text_clean, role)
     cached_file = os.path.join(_vox_dir(), f"vox_{file_hash}.mp3")
 
-    # Filesystem cache is the source of truth.
+    # Filesystem cache is the source of truth. A cache hit costs nothing (the clip
+    # was synthesized once before), so it's traced as cached=True with no tokens.
     if os.path.exists(cached_file):
         try:
-            return AudioSegment.from_file(cached_file)
+            segment = AudioSegment.from_file(cached_file)
+            usage_collector.record("tts", "gemini", model=genai_client.tts_model(), cached=True)
+            return segment
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to load cached TTS clip %s: %s", cached_file, exc)
 
@@ -145,6 +164,7 @@ def get_tts_audio(text: str, role: str) -> AudioSegment:
                 exc,
             )
 
+    usage_collector.record("tts", "synthetic")
     return _fallback_clip(text_clean)
 
 

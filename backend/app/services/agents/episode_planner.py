@@ -27,6 +27,7 @@ from app.models import (
     CommercialBrand,
     MusicTrack,
     NewsItem,
+    StationNewsRead,
 )
 
 # --------------------------------------------------------------------------- #
@@ -38,14 +39,6 @@ DEFAULT_TRACKS: list[dict[str, Any]] = [
     {"id": None, "title": "Combine Harvester Blues", "artist": "The Silos", "duration": 195.0},
 ]
 
-DEFAULT_NEWS: dict[str, Any] = {
-    "headline": "Clima Extremo Amenaza Cosechas",
-    "summary": "Una lluvia de sapos de goma ha ralentizado los tractores en la zona este.",
-    "full_script": "Los sapos rebotan en el parabrisas y dificultan la labranza.",
-    "category": "Clima",
-    "tone": "Absurdo",
-}
-
 DEFAULT_COMMERCIAL: dict[str, Any] = {
     "brand_name": "AgroFuel",
     "title": "AgroFuel Max",
@@ -55,7 +48,6 @@ DEFAULT_COMMERCIAL: dict[str, Any] = {
 }
 
 # Lists used to pad the plural pickers up to the requested count.
-DEFAULT_NEWS_ITEMS: list[dict[str, Any]] = [DEFAULT_NEWS]
 DEFAULT_COMMERCIALS: list[dict[str, Any]] = [DEFAULT_COMMERCIAL]
 
 
@@ -146,18 +138,32 @@ def pick_tracks(owner_id: uuid.UUID, count: int) -> list[dict[str, Any]]:
     return _pad([_track_to_dict(r) for r in rows], DEFAULT_TRACKS, count)
 
 
-def pick_news_items(owner_id: uuid.UUID, count: int) -> list[dict[str, Any]]:
-    """Pick ``count`` random active owned news items (padded with defaults)."""
+def pick_news_items(
+    owner_id: uuid.UUID, count: int, station_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    """Pick up to ``count`` random active owned news items for ``station_id``.
+
+    Each news item is read at most once per station: items already recorded in
+    ``station_news_reads`` for this station are excluded. There is no procedural
+    padding here — when the station has exhausted its fresh news (or the owner has
+    none), the episode simply gets fewer (or zero) news blocks.
+    """
     if count <= 0:
         return []
+    already_read = (
+        db.session.query(StationNewsRead.news_item_id)
+        .filter(StationNewsRead.station_id == station_id)
+        .scalar_subquery()
+    )
     rows = (
         _owned(NewsItem, owner_id)
         .filter(NewsItem.is_active.is_(True))
+        .filter(NewsItem.id.notin_(already_read))
         .order_by(func.random())
         .limit(count)
         .all()
     )
-    return _pad([_news_to_dict(r) for r in rows], DEFAULT_NEWS_ITEMS, count)
+    return [_news_to_dict(r) for r in rows]
 
 
 def pick_commercials(owner_id: uuid.UUID, count: int) -> list[dict[str, Any]]:
@@ -238,7 +244,7 @@ def plan_episode(owner_id: uuid.UUID, station, settings) -> dict[str, Any]:
     station_name = getattr(station, "name", None)
     return {
         "tracks": pick_tracks(owner_id, settings.song_count),
-        "news": pick_news_items(owner_id, settings.news_count),
+        "news": pick_news_items(owner_id, settings.news_count, station.id),
         "commercials": pick_commercials(owner_id, settings.commercial_count),
         "characters": pick_characters(
             owner_id, settings.caller_count, settings.memories_per_caller, station_name

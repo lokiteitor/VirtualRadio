@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { AppModal } from "~/shared/ui";
+import { useApi } from "~/shared/api";
 import { JOB_STATUS_PROGRESS, JOB_STATUS_STEP } from "~/shared/config";
-import type { Job } from "~/features/generate-episode";
+import type { Job, Trace } from "~/features/generate-episode";
 
 const props = defineProps<{ job: Job }>();
 const emit = defineEmits<{ close: []; viewEpisode: [episodeId: string] }>();
@@ -11,6 +12,27 @@ const stepIndex = computed(() => JOB_STATUS_STEP[props.job.status] ?? -1);
 const progress = computed(() => JOB_STATUS_PROGRESS[props.job.status] ?? 0);
 const isDone = computed(() => props.job.status === "completed" || props.job.status === "failed");
 const isFailed = computed(() => props.job.status === "failed");
+
+// AI usage auditing — aggregates come on the job; per-call detail is fetched once
+// the job completes (the worker persists traces only at the end).
+const api = useApi();
+const traces = ref<Trace[]>([]);
+const tracesLoaded = ref(false);
+const ttsSynthesized = computed(() => props.job.tts_calls - props.job.tts_cached);
+
+watch(
+  () => props.job.status,
+  async (status) => {
+    if (status !== "completed" || tracesLoaded.value) return;
+    tracesLoaded.value = true;
+    try {
+      traces.value = await api.get<Trace[]>(`/jobs/${props.job.id}/traces`);
+    } catch {
+      // best-effort: the audit detail is non-critical
+    }
+  },
+  { immediate: true },
+);
 
 const STEPS = [
   { title: "Agente Planificador (Planner)", desc: "Analiza el lore, selecciona canciones y consulta personajes." },
@@ -58,6 +80,58 @@ const STEPS = [
         <div v-if="isFailed" class="console-line text-red">&gt; ERROR: {{ job.error }}</div>
       </div>
     </div>
+
+    <section v-if="job.status === 'completed'" class="audit">
+      <div class="audit-header">🧾 Auditoría de costos (uso de IA)</div>
+      <div class="audit-metrics">
+        <div class="metric">
+          <span class="metric-label">Llamadas LLM</span>
+          <span class="metric-value">{{ job.llm_calls }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Tokens LLM (in / out)</span>
+          <span class="metric-value">{{ job.llm_tokens_in }} / {{ job.llm_tokens_out }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Voces TTS sintetizadas</span>
+          <span class="metric-value">{{ ttsSynthesized }}</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">TTS desde caché (sin costo)</span>
+          <span class="metric-value">{{ job.tts_cached }} / {{ job.tts_calls }}</span>
+        </div>
+      </div>
+
+      <details v-if="traces.length" class="audit-detail">
+        <summary>Detalle por llamada ({{ traces.length }})</summary>
+        <div class="audit-table-wrap">
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Proveedor</th>
+                <th>Modelo</th>
+                <th class="num">Tok. in</th>
+                <th class="num">Tok. out</th>
+                <th class="num">ms</th>
+                <th>Caché</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="t in traces" :key="t.id">
+                <td>{{ t.kind.toUpperCase() }}</td>
+                <td>{{ t.provider }}</td>
+                <td class="model">{{ t.model || "—" }}</td>
+                <td class="num">{{ t.tokens_in }}</td>
+                <td class="num">{{ t.tokens_out }}</td>
+                <td class="num">{{ t.latency_ms }}</td>
+                <td>{{ t.cached ? "✓" : "" }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
 
     <template #footer>
       <button
@@ -181,5 +255,78 @@ const STEPS = [
 }
 .text-red {
   color: #f87171;
+}
+.audit {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.audit-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+.audit-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background-color: var(--bg-deep);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.metric-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.metric-value {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: "JetBrains Mono", monospace;
+}
+.audit-detail summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.audit-table-wrap {
+  margin-top: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+}
+.audit-table th,
+.audit-table td {
+  padding: 4px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+.audit-table th {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.audit-table .num {
+  text-align: right;
+}
+.audit-table .model {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

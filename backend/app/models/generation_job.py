@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import ForeignKey, Index, SmallInteger, Text, text
+from sqlalchemy import ForeignKey, Index, Integer, SmallInteger, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,3 +36,24 @@ class GenerationJob(UUIDPkMixin, OwnerMixin, TimestampMixin, db.Model):
         SmallInteger, nullable=False, server_default=text("0"), default=0
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # AI usage aggregates (cost auditing) — summed from ``generation_traces`` when
+    # the job completes; per-call detail lives in that table.
+    llm_calls: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    llm_tokens_in: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    llm_tokens_out: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    tts_calls: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    tts_cached: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    tts_tokens: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )

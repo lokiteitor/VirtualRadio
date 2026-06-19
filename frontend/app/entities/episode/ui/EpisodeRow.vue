@@ -6,6 +6,7 @@ defineProps<{ episode: Episode; stationName?: string; active?: boolean }>();
 const emit = defineEmits<{
   select: [episode: Episode];
   play: [episode: Episode];
+  download: [episode: Episode];
   remove: [episode: Episode];
 }>();
 </script>
@@ -25,6 +26,7 @@ const emit = defineEmits<{
     </div>
     <div class="ep-controls">
       <button class="btn btn-sm btn-circle" title="Reproducir" @click.stop="emit('play', episode)">▶️</button>
+      <button class="btn btn-sm btn-circle" title="Descargar" @click.stop="emit('download', episode)">⬇️</button>
       <button class="btn btn-sm btn-circle btn-danger" title="Eliminar" @click.stop="emit('remove', episode)">
         🗑️
       </button>

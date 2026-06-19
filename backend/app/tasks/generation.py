@@ -17,6 +17,7 @@ import traceback
 
 from celery import shared_task
 from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.extensions import db
 from app.models import (
@@ -24,13 +25,60 @@ from app.models import (
     CharacterMemory,
     Episode,
     GenerationJob,
+    GenerationTrace,
     MusicTrack,
     Station,
+    StationNewsRead,
 )
-from app.models.enums import JobStatus
+from app.models.enums import JobStatus, TraceKind
+from app.services import usage_collector
 from app.services.agents import episode_assembly
 
 logger = logging.getLogger(__name__)
+
+
+def _persist_usage(job, episode, traces):
+    """Persist per-call AI usage traces and roll their totals up onto the job.
+
+    Runs in the worker (no request context): ``owner_id`` comes from the job, not
+    ``current_user``. Tokens/counts only — no monetary cost.
+    """
+    totals = {
+        "llm_calls": 0,
+        "llm_tokens_in": 0,
+        "llm_tokens_out": 0,
+        "tts_calls": 0,
+        "tts_cached": 0,
+        "tts_tokens": 0,
+    }
+    for t in traces:
+        db.session.add(
+            GenerationTrace(
+                owner_id=job.owner_id,
+                job_id=job.id,
+                episode_id=episode.id,
+                kind=TraceKind(t["kind"]),
+                provider=t["provider"],
+                model=t["model"],
+                tokens_in=t["tokens_in"],
+                tokens_out=t["tokens_out"],
+                total_tokens=t["total_tokens"],
+                cached=t["cached"],
+                latency_ms=t["latency_ms"],
+            )
+        )
+        if t["kind"] == "llm":
+            totals["llm_calls"] += 1
+            totals["llm_tokens_in"] += t["tokens_in"]
+            totals["llm_tokens_out"] += t["tokens_out"]
+        else:  # tts
+            totals["tts_calls"] += 1
+            totals["tts_tokens"] += t["total_tokens"]
+            if t["cached"]:
+                totals["tts_cached"] += 1
+    for field, value in totals.items():
+        setattr(job, field, value)
+    db.session.commit()
 
 
 def _resolve_tracks(owner_id, track_ids):
@@ -59,82 +107,106 @@ def generate_episode_task(job_id: str):
         return None
 
     try:
-        # 1. Planning.
-        job.status = JobStatus.PLANNING
-        job.progress = 10
-        db.session.commit()
+        # Collect per-call LLM/TTS usage across assembly (LLM) and compile (TTS)
+        # for cost auditing; persisted once the episode exists (see step 6b).
+        with usage_collector.collect() as traces:
+            # 1. Planning.
+            job.status = JobStatus.PLANNING
+            job.progress = 10
+            db.session.commit()
 
-        # 2. Load the (owner-scoped) station + ensure media assets exist.
-        station = (
-            db.session.query(Station)
-            .filter(Station.id == job.station_id)
-            .filter(Station.owner_id == job.owner_id)
-            .first()
-        )
-        if station is None:
-            raise ValueError(
-                f"Station {job.station_id} not found for owner {job.owner_id}"
+            # 2. Load the (owner-scoped) station + ensure media assets exist.
+            station = (
+                db.session.query(Station)
+                .filter(Station.id == job.station_id)
+                .filter(Station.owner_id == job.owner_id)
+                .first()
             )
+            if station is None:
+                raise ValueError(
+                    f"Station {job.station_id} not found for owner {job.owner_id}"
+                )
 
-        audio_engine.ensure_fx_assets()
-        # Generate mock tracks if the user has none AND register them in the DB,
-        # so the planner (which queries MusicTrack) finds playable audio.
-        from app.services.music_indexer import ensure_owner_music
+            audio_engine.ensure_fx_assets()
+            # Generate mock tracks if the user has none AND register them in the DB,
+            # so the planner (which queries MusicTrack) finds playable audio.
+            from app.services.music_indexer import ensure_owner_music
 
-        ensure_owner_music(job.owner_id)
+            ensure_owner_music(job.owner_id)
 
-        # Per-station script settings (created with defaults on first use).
-        from app.services.episode_settings import get_or_create_for_station
+            # Per-station script settings (created with defaults on first use).
+            from app.services.episode_settings import get_or_create_for_station
 
-        settings = get_or_create_for_station(job.owner_id, station.id)
+            settings = get_or_create_for_station(job.owner_id, station.id)
 
-        # 3. Assemble the episode (agents + LLM/procedural script).
-        result = episode_assembly.build_episode(job.owner_id, station, settings)
+            # 3. Assemble the episode (agents + LLM/procedural script).
+            result = episode_assembly.build_episode(job.owner_id, station, settings)
 
-        # 4. Persist the episode with a deterministic per-station number. Lock the
-        #    station row so concurrent generations of the SAME station serialize
-        #    (other stations stay parallel); the unique constraint is the backstop.
-        db.session.query(Station).filter(
-            Station.id == station.id, Station.owner_id == job.owner_id
-        ).with_for_update().first()
-        last_number = (
-            db.session.query(func.max(Episode.episode_number))
-            .filter(
-                Episode.owner_id == job.owner_id,
-                Episode.station_id == station.id,
+            # 4. Persist the episode with a deterministic per-station number. Lock the
+            #    station row so concurrent generations of the SAME station serialize
+            #    (other stations stay parallel); the unique constraint is the backstop.
+            db.session.query(Station).filter(
+                Station.id == station.id, Station.owner_id == job.owner_id
+            ).with_for_update().first()
+            last_number = (
+                db.session.query(func.max(Episode.episode_number))
+                .filter(
+                    Episode.owner_id == job.owner_id,
+                    Episode.station_id == station.id,
+                )
+                .scalar()
             )
-            .scalar()
-        )
-        episode_number = (last_number or 0) + 1
-        episode = Episode(
-            owner_id=job.owner_id,
-            station_id=station.id,
-            episode_number=episode_number,
-            title=f"{station.name} - Episodio {episode_number}",
-            script_json=result["script_json"],
-        )
-        db.session.add(episode)
-        db.session.commit()
-        job.episode_id = episode.id
-        db.session.commit()
+            episode_number = (last_number or 0) + 1
+            episode = Episode(
+                owner_id=job.owner_id,
+                station_id=station.id,
+                episode_number=episode_number,
+                title=f"{station.name} - Episodio {episode_number}",
+                script_json=result["script_json"],
+            )
+            db.session.add(episode)
+            db.session.commit()
+            job.episode_id = episode.id
+            db.session.commit()
 
-        # 5. Synthesizing.
-        job.status = JobStatus.SYNTHESIZING
-        job.progress = 50
-        db.session.commit()
+            # 4b. Record the news read on this station so each item is read once per
+            #     station (idempotent against the (station, news) unique constraint).
+            if result["news_ids"]:
+                db.session.execute(
+                    pg_insert(StationNewsRead)
+                    .values([
+                        {
+                            "owner_id": job.owner_id,
+                            "station_id": station.id,
+                            "news_item_id": news_id,
+                            "episode_id": episode.id,
+                        }
+                        for news_id in result["news_ids"]
+                    ])
+                    .on_conflict_do_nothing(constraint="uq_station_news_read")
+                )
+                db.session.commit()
 
-        # 6. Mixing: resolve tracks and compile the final MP3.
-        job.status = JobStatus.MIXING
-        job.progress = 75
-        db.session.commit()
+            # 5. Synthesizing.
+            job.status = JobStatus.SYNTHESIZING
+            job.progress = 50
+            db.session.commit()
 
-        tracks = _resolve_tracks(job.owner_id, result["track_ids"])
-        rel_path, duration = audio_engine.compile_episode(
-            episode, tracks, tts_client.get_tts_audio
-        )
-        episode.audio_path = rel_path
-        episode.duration = duration
-        db.session.commit()
+            # 6. Mixing: resolve tracks and compile the final MP3.
+            job.status = JobStatus.MIXING
+            job.progress = 75
+            db.session.commit()
+
+            tracks = _resolve_tracks(job.owner_id, result["track_ids"])
+            rel_path, duration = audio_engine.compile_episode(
+                episode, tracks, tts_client.get_tts_audio
+            )
+            episode.audio_path = rel_path
+            episode.duration = duration
+            db.session.commit()
+
+        # 6b. Persist AI usage traces + roll totals up onto the job.
+        _persist_usage(job, episode, traces)
 
         # 7. Persist caller memory + bump last_appearance for each caller.
         for caller in result["callers"]:

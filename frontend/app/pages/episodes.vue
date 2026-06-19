@@ -5,9 +5,11 @@ import { NAV_ITEMS } from "~/shared/config";
 import { EpisodeRow, useEpisodeStore, type Episode } from "~/entities/episode";
 import { useStationStore } from "~/entities/station";
 import { EpisodePlayer } from "~/widgets/episode-player";
+import { useDownloadEpisode } from "~/features/download-episode";
 
 const store = useEpisodeStore();
 const stationStore = useStationStore();
+const { download } = useDownloadEpisode();
 const selected = ref<Episode | null>(null);
 const autoplay = ref(false);
 
@@ -65,6 +67,9 @@ function onPlay(ep: Episode) {
   autoplay.value = true;
   selected.value = ep;
 }
+function onDownload(ep: Episode) {
+  void download(ep);
+}
 async function onRemove(ep: Episode) {
   if (!confirm(`¿Eliminar el episodio "${ep.title}"? Esta acción no se puede deshacer.`)) return;
   await store.remove(ep.id);
@@ -111,6 +116,7 @@ watch(
             :active="selected?.id === ep.id"
             @select="onSelect"
             @play="onPlay"
+            @download="onDownload"
             @remove="onRemove"
           />
         </section>

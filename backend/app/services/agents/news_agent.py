@@ -63,10 +63,16 @@ def transition_segment(host_name: str, prev_artist: str | None) -> dict[str, Any
     }
 
 
-def report_segment(station_name: str, news: dict[str, Any]) -> dict[str, Any]:
-    """Reporter reading the news story."""
+def report_segment(news: dict[str, Any]) -> dict[str, Any]:
+    """Reporter reading the news story.
+
+    The text deliberately omits the station name so the synthesized audio is
+    identical for the same news item across every station, letting the TTS cache
+    (keyed on text + role) be reused instead of re-synthesized per station. The
+    station identity is carried by the host's transition and reaction segments.
+    """
     full_script = news.get("full_script") or news.get("summary") or news.get("headline", "")
-    text = f"Reportando para {station_name}, soy el Corresponsal Virtual. {full_script}"
+    text = f"Les informa el Corresponsal Virtual. {full_script}"
     return {
         "type": "speech",
         "speaker": "Reporter",
@@ -98,6 +104,6 @@ def build_segments(
     """Full news block: transition + reporter + host reaction."""
     return [
         transition_segment(host_name, prev_artist),
-        report_segment(station_name, news),
+        report_segment(news),
         reaction_segment(station_name),
     ]

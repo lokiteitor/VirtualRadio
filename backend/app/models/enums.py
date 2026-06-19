@@ -38,6 +38,13 @@ class JobStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class TraceKind(str, enum.Enum):
+    """Kind of audited AI call recorded in ``generation_traces``."""
+
+    LLM = "llm"
+    TTS = "tts"
+
+
 class SegmentType(str, enum.Enum):
     """Script segment type (validation only; ``script_json`` is stored as JSONB)."""
 
@@ -108,5 +115,6 @@ NEWS_CATEGORY_ENUM_NAME = "news_category"
 NEWS_TONE_ENUM_NAME = "news_tone"
 STORY_STATUS_ENUM_NAME = "story_status"
 JOB_STATUS_ENUM_NAME = "job_status"
+TRACE_KIND_ENUM_NAME = "trace_kind"
 LANGUAGE_ENUM_NAME = "language"
 GEMINI_VOICE_ENUM_NAME = "gemini_voice"

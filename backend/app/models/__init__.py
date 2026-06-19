@@ -13,14 +13,17 @@ from app.models.enums import (
     NewsTone,
     SegmentType,
     StoryStatus,
+    TraceKind,
 )
 from app.models.episode import Episode
 from app.models.generation_job import GenerationJob
+from app.models.generation_trace import GenerationTrace
 from app.models.music_track import MusicTrack
 from app.models.news_item import NewsItem
 from app.models.role import Role
 from app.models.station import Station
 from app.models.station_episode_settings import StationEpisodeSettings
+from app.models.station_news_read import StationNewsRead
 from app.models.story_event import StoryEvent
 from app.models.user import User
 
@@ -29,6 +32,7 @@ __all__ = [
     "Role",
     "Station",
     "StationEpisodeSettings",
+    "StationNewsRead",
     "Episode",
     "MusicTrack",
     "NewsItem",
@@ -38,9 +42,11 @@ __all__ = [
     "CharacterMemory",
     "StoryEvent",
     "GenerationJob",
+    "GenerationTrace",
     "NewsCategory",
     "NewsTone",
     "StoryStatus",
     "JobStatus",
+    "TraceKind",
     "SegmentType",
 ]

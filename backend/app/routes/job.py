@@ -14,3 +14,9 @@ bp = Blueprint("jobs", __name__)
 @check_permission("job", "read")
 def get_job(job_id):
     return success(ctrl.get_job(job_id))
+
+
+@bp.get("/jobs/<job_id>/traces")
+@check_permission("job", "read")
+def get_job_traces(job_id):
+    return success(ctrl.get_job_traces(job_id))
