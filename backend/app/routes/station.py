@@ -7,6 +7,7 @@ from app.auth.permissions import check_permission
 from app.common.responses import created, no_content, success
 from app.controllers import station as ctrl
 from app.controllers import station_episode_settings as settings_ctrl
+from app.controllers import station_music as music_ctrl
 
 bp = Blueprint("stations", __name__)
 
@@ -61,3 +62,17 @@ def update_episode_settings(station_id):
     return success(
         settings_ctrl.update_settings(station_id, request.get_json(silent=True))
     )
+
+
+@bp.get("/stations/<station_id>/music")
+@check_permission("station", "read_music")
+def get_station_music(station_id):
+    data = music_ctrl.get_station_music(station_id)
+    return success(data, {"count": len(data)})
+
+
+@bp.put("/stations/<station_id>/music")
+@check_permission("station", "update_music")
+def update_station_music(station_id):
+    data = music_ctrl.set_station_music(station_id, request.get_json(silent=True))
+    return success(data, {"count": len(data)})

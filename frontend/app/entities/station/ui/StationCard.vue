@@ -7,6 +7,7 @@ const emit = defineEmits<{
   edit: [station: Station];
   remove: [station: Station];
   settings: [station: Station];
+  music: [station: Station];
 }>();
 </script>
 
@@ -31,6 +32,7 @@ const emit = defineEmits<{
       <div class="station-actions">
         <button class="btn btn-secondary btn-sm" @click="emit('edit', station)">✏️ Editar</button>
         <button class="btn btn-secondary btn-sm" @click="emit('settings', station)">⚙️ Guion</button>
+        <button class="btn btn-secondary btn-sm" @click="emit('music', station)">🎵 Música</button>
         <button class="btn btn-secondary btn-sm" @click="emit('remove', station)">🗑️</button>
       </div>
     </div>

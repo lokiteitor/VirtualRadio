@@ -23,6 +23,7 @@ from app.models.news_item import NewsItem
 from app.models.role import Role
 from app.models.station import Station
 from app.models.station_episode_settings import StationEpisodeSettings
+from app.models.station_music import StationMusic
 from app.models.station_news_read import StationNewsRead
 from app.models.story_event import StoryEvent
 from app.models.user import User
@@ -32,6 +33,7 @@ __all__ = [
     "Role",
     "Station",
     "StationEpisodeSettings",
+    "StationMusic",
     "StationNewsRead",
     "Episode",
     "MusicTrack",

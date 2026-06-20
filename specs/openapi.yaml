@@ -353,6 +353,56 @@ paths:
         '422':
           $ref: '#/components/responses/ValidationError'
 
+  /stations/{id}/music:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    get:
+      tags: [Stations]
+      summary: Obtener la selección de música de la estación
+      description: |
+        Permiso: `station:read_music:own`. Devuelve las pistas de la biblioteca
+        asignadas a la estación. Si la lista está vacía, la generación usa toda
+        la biblioteca del usuario sin filtrar.
+      operationId: getStationMusic
+      responses:
+        '200':
+          description: Pistas asignadas a la estación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MusicTrackList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Stations]
+      summary: Reemplazar la selección de música de la estación
+      description: |
+        Permiso: `station:update_music:own`. Reemplaza por completo la selección
+        con `track_ids`. Una lista vacía la limpia (la estación vuelve a usar la
+        biblioteca completa). Cada pista debe pertenecer al usuario (si no, 404).
+      operationId: setStationMusic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StationMusicInput'
+      responses:
+        '200':
+          description: Selección actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MusicTrackList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
   # ---------------------------------------------------------------------------
   # Episodes
   # ---------------------------------------------------------------------------
@@ -1883,6 +1933,17 @@ components:
           $ref: '#/components/schemas/MusicTrack'
         meta:
           $ref: '#/components/schemas/Meta'
+
+    StationMusicInput:
+      type: object
+      required: [track_ids]
+      properties:
+        track_ids:
+          type: array
+          description: Pistas (de la biblioteca del usuario) habilitadas para la estación. Lista vacía = sin filtro.
+          items:
+            type: string
+            format: uuid
 
     MusicTrackList:
       type: object

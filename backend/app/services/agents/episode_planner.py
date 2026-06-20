@@ -27,6 +27,7 @@ from app.models import (
     CommercialBrand,
     MusicTrack,
     NewsItem,
+    StationMusic,
     StationNewsRead,
 )
 
@@ -130,11 +131,25 @@ def _character_to_dict(row, owner_id: uuid.UUID, memories_per_caller: int) -> di
 # --------------------------------------------------------------------------- #
 # Plural pickers (each returns a list honouring ``count``)
 # --------------------------------------------------------------------------- #
-def pick_tracks(owner_id: uuid.UUID, count: int) -> list[dict[str, Any]]:
-    """Pick ``count`` random owned tracks (padded with procedural defaults)."""
+def pick_tracks(
+    owner_id: uuid.UUID, count: int, station_id: uuid.UUID
+) -> list[dict[str, Any]]:
+    """Pick ``count`` random tracks for ``station_id`` (padded with defaults).
+
+    If the station has a music selection (``station_music`` rows), the pick is
+    restricted to those tracks; otherwise it falls back to the owner's whole
+    library. Padding with procedural ``DEFAULT_TRACKS`` is kept in both paths so
+    an episode never ends up without music.
+    """
     if count <= 0:
         return []
-    rows = _owned(MusicTrack, owner_id).order_by(func.random()).limit(count).all()
+    query = _owned(MusicTrack, owner_id)
+    selected = db.session.query(StationMusic.music_track_id).filter(
+        StationMusic.station_id == station_id
+    )
+    if db.session.query(selected.exists()).scalar():
+        query = query.filter(MusicTrack.id.in_(selected.scalar_subquery()))
+    rows = query.order_by(func.random()).limit(count).all()
     return _pad([_track_to_dict(r) for r in rows], DEFAULT_TRACKS, count)
 
 
@@ -243,7 +258,7 @@ def plan_episode(owner_id: uuid.UUID, station, settings) -> dict[str, Any]:
     """
     station_name = getattr(station, "name", None)
     return {
-        "tracks": pick_tracks(owner_id, settings.song_count),
+        "tracks": pick_tracks(owner_id, settings.song_count, station.id),
         "news": pick_news_items(owner_id, settings.news_count, station.id),
         "commercials": pick_commercials(owner_id, settings.commercial_count),
         "characters": pick_characters(

@@ -5,6 +5,7 @@ import { NAV_ITEMS } from "~/shared/config";
 import { StationCard, useStationStore, type Station } from "~/entities/station";
 import { StationForm } from "~/features/manage-station";
 import { EpisodeSettingsForm } from "~/features/manage-episode-settings";
+import { StationMusicPanel } from "~/features/assign-station-music";
 import { useGenerateEpisode } from "~/features/generate-episode";
 import { GenerationPipelineModal } from "~/widgets/generation-pipeline-modal";
 import { UniverseSummary } from "~/widgets/universe-summary";
@@ -12,6 +13,7 @@ import { UniverseSummary } from "~/widgets/universe-summary";
 const store = useStationStore();
 const editing = ref<Station | null>(null);
 const settingsFor = ref<Station | null>(null);
+const musicFor = ref<Station | null>(null);
 const { job, isOpen, start, close } = useGenerateEpisode();
 
 onMounted(() => store.fetchAll());
@@ -25,6 +27,9 @@ function onEdit(s: Station) {
 }
 function onSettings(s: Station) {
   settingsFor.value = s;
+}
+function onMusic(s: Station) {
+  musicFor.value = s;
 }
 async function onRemove(s: Station) {
   if (confirm(`¿Eliminar "${s.name}"? Se borrarán sus episodios y jobs asociados.`)) {
@@ -56,6 +61,7 @@ function viewEpisode() {
             @generate="onGenerate"
             @edit="onEdit"
             @settings="onSettings"
+            @music="onMusic"
             @remove="onRemove"
           />
         </div>
@@ -89,6 +95,19 @@ function viewEpisode() {
         :station-name="settingsFor.name"
         @saved="settingsFor = null"
         @cancel="settingsFor = null"
+      />
+    </AppModal>
+
+    <AppModal
+      v-if="musicFor"
+      :title="`🎵 Música · ${musicFor.name}`"
+      @close="musicFor = null"
+    >
+      <StationMusicPanel
+        :station-id="musicFor.id"
+        :station-name="musicFor.name"
+        @saved="musicFor = null"
+        @cancel="musicFor = null"
       />
     </AppModal>
   </div>
